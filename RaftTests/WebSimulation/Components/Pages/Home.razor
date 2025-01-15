@@ -1,0 +1,41 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using RaftLibrary
+
+<PageTitle>Home</PageTitle>
+
+<h1>Hello, world!</h1>
+
+Welcome to your new app.
+
+<button @onclick="startSimulation"></button>
+
+@foreach(var node in nodes)
+{
+	<div>
+		@node.Id
+	</div>
+}
+
+
+@code {
+	List<SimulationNode>? nodes = [];
+
+	void startSimulation()
+	{
+		var node1 = new Node([]);
+		var node2 = new Node([]);
+		var node3 = new Node([]);
+
+		var simulation1 = new SimulationNode(node1);
+		var simulation2 = new SimulationNode(node2);
+		var simulation3 = new SimulationNode(node3);
+
+		node1.Nodes = [simulation2, simulation3];
+		node2.Nodes = [simulation1, simulation3];
+		node3.Nodes = [simulation2, simulation1];
+
+		nodes = [simulation1, simulation2, simulation3];
+		StateHasChanged();
+	}
+}
