@@ -89,7 +89,7 @@ public class Node
         Timer.Start();
     }
 
-    private void OnElectionTimeout(object sender, ElapsedEventArgs e)
+    private void OnElectionTimeout(object? sender, ElapsedEventArgs e)
     {
         switch (State)
         {
