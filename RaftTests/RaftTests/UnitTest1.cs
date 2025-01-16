@@ -22,7 +22,7 @@ public class UnitTest1
 
     //Test #7
     [Fact]
-    public async void FollowersTimer_Should_Reset_After_Received_Message()
+    public async Task FollowersTimer_Should_Reset_After_Received_Message()
     {
         // Arrange
         var leader = Substitute.For<INode>();
@@ -85,7 +85,7 @@ public class UnitTest1
 
         // Assert
         node.State.Should().Be(NodeState.Candidate);
-        node.Votes.Should().Contain(node.Id, node.Term);
+        node.Votes.Should().Contain(node.Term);
     }
 
     //Test #6
@@ -109,9 +109,11 @@ public class UnitTest1
     {
         // Arrange
         var follower1 = Substitute.For<INode>();
-        var leader = new Node(new List<INode> { follower1 });
+        var leader = new Node([follower1]);
 
         // Act
+        await leader.SendVote();
+        await leader.SendVote();
         leader.BecomeLeader();
         await Task.Delay(200);
 
@@ -131,7 +133,7 @@ public class UnitTest1
         leader.Id = 1234;
 
         // Act
-        await follower.ReceiveHeartbeat(leader.Term - 1, leader.Id);
+        await follower.ReceiveHeartbeat(follower.Term - 1, leader.Id);
 
         // Assert
         await leader.Received(0).RespondHeartbeat();
@@ -171,5 +173,41 @@ public class UnitTest1
         // Assert
         node.State.Should().Be(NodeState.Candidate);
         firstTimer.Should().NotBe(secondTimer);
+    }
+
+
+    //Test #10
+    [Fact]
+    public async Task If_A_Node_HasNot_Voted_And_Gets_RequestVoteRPC_It_Responds_Yes()
+    {
+        //Arrange
+        var fauxCandidate = Substitute.For<INode>();
+        var followerNode = new Node([fauxCandidate]);
+        fauxCandidate.Term = followerNode.Term + 1;
+        fauxCandidate.Id = followerNode.Id + 1;
+
+        //Act
+        await followerNode.ReceiveRequestVote(fauxCandidate.Id);
+
+        //Assert
+        await fauxCandidate.Received(1).SendVote();
+    }
+
+    //Test #8
+    [Fact]
+    public async Task If_A_Candidate_Gets_Majority_Votes_Then_It_Becomes_A_Leader()
+    {
+        // Arrange
+        var fauxNode1 = Substitute.For<INode>();
+        var fauxNode2 = Substitute.For<INode>();
+        var node = new Node([fauxNode1, fauxNode2]) { State = NodeState.Follower };
+
+        // Act
+        node.BecomeCandidate();
+        await node.SendVote();
+        node.BecomeLeader();
+
+        // Assert
+        node.State.Should().Be(NodeState.Leader);
     }
 }

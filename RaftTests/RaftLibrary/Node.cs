@@ -1,4 +1,5 @@
-﻿using System.Threading;
+﻿using System.Linq.Expressions;
+using System.Threading;
 using System.Timers;
 using System.Xml.Linq;
 
@@ -10,7 +11,7 @@ public class Node
     public int Term { get; set; }
     public NodeState State { get; set; }
     public System.Timers.Timer Timer { get; set; }
-    public Dictionary<int, int> Votes { get; set; }
+    public List<int> Votes { get; set; }
     public List<INode> Nodes { get; set; }
 
     public Node(List<INode>? nodes = null)
@@ -57,6 +58,30 @@ public class Node
         await Task.CompletedTask;
     }
 
+    public async Task RequestVotes(int requestedTerm)
+    {
+        foreach (INode _node in Nodes.Where(node => node.State == NodeState.Follower))
+        {
+            if (requestedTerm !> Term)
+                await _node.SendVote();
+        }
+    }
+
+    public async Task ReceiveRequestVote(int candidateId)
+    {
+        var candidate = Nodes.Find(node => node.Id == candidateId);
+
+        if (candidate != null)
+            await candidate.SendVote();
+
+    }
+
+    public async Task SendVote()
+    {
+        Votes.Add(Term);
+        await Task.CompletedTask;
+    }
+
     public void ResetTimer()
     {
         Timer.Stop();
@@ -67,27 +92,43 @@ public class Node
 
     private void OnElectionTimeout(object sender, ElapsedEventArgs e)
     {
-        ResetTimer();
-        if (State != NodeState.Candidate)
+        switch (State)
         {
-            BecomeCandidate();
+            case NodeState.Follower:
+                BecomeCandidate();
+                break;
+            case NodeState.Candidate:
+                BecomeLeader();
+                break;
         }
+
     }
 
     public void BecomeCandidate()
     {
+        ResetTimer();
         State = NodeState.Candidate;
         Term += 1;
-        Votes.Add(Id, Term);
+        Votes.Add(Term);
     }
 
     public void BecomeLeader()
     {
-        Timer.Stop();
-        State = NodeState.Leader;
-        Timer = new System.Timers.Timer(50);
-        Timer.Elapsed += async (sender, e) => await SendHeartbeat();
-        Timer.AutoReset = true;
-        Timer.Start();
+        int votesReceived = Votes.Count(entry => entry == Term);
+        int majorityNodes = (Nodes.Count + 1) / 2;
+
+        if (votesReceived > majorityNodes && votesReceived > 1)
+        {
+            Timer.Stop();
+            State = NodeState.Leader;
+            Timer = new System.Timers.Timer(50);
+            Timer.Elapsed += async (sender, e) => await SendHeartbeat();
+            Timer.AutoReset = true;
+            Timer.Start();
+        }
+        else
+        {
+            ResetTimer();
+        }
     }
 }

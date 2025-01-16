@@ -6,7 +6,8 @@ public interface INode
     public int Term { get; set; }
     public NodeState State { get; set; }
     public System.Timers.Timer Timer {  get; set; }
-    public Dictionary<int, int> Votes { get; set; }
+    public List<int> Votes { get; set; }
     Task ReceiveHeartbeat(int id);
     Task RespondHeartbeat();
+    Task SendVote();
 }

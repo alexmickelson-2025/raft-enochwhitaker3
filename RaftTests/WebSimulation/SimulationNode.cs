@@ -15,7 +15,7 @@ public class SimulationNode : INode
     public int Term { get => InnerNode.Term; set => InnerNode.Term = value; }
     public NodeState State { get => InnerNode.State; set => InnerNode.State = value; }
     public System.Timers.Timer Timer { get => InnerNode.Timer; set => InnerNode.Timer = value; }
-    public Dictionary<int, int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
+    public List<int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
 
     public Task ReceiveHeartbeat(int id)
     {
@@ -27,5 +27,10 @@ public class SimulationNode : INode
     {
         ((INode)InnerNode).RespondHeartbeat();  
         return Task.CompletedTask;
+    }
+
+    public Task SendVote()
+    {
+        throw new NotImplementedException();
     }
 }
