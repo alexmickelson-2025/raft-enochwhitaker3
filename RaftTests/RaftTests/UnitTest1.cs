@@ -71,6 +71,7 @@ public class UnitTest1
         //Assert
         node.Timer.Interval.Should().NotBe(startInterval);
         node.Timer.Interval.Should().NotBe(middleInterval);
+        startInterval.Should().NotBe(middleInterval);
     }
 
     //Test #11
@@ -118,7 +119,7 @@ public class UnitTest1
         await Task.Delay(200);
 
         // Assert
-        await follower1.Received(4).ReceiveHeartbeat(leader.Term);
+        await follower1.Received(5).ReceiveHeartbeat(leader.Term);
     }
 
     //Test #18
@@ -209,5 +210,159 @@ public class UnitTest1
 
         // Assert
         node.State.Should().Be(NodeState.Leader);
+    }
+
+    //Test #2
+    [Fact]
+    public async Task If_A_Follower_Gets_RPC_From_Another_Node_It_Remembers_The_Sender_Is_The_Leader()
+    {
+        // Arrange
+        var fauxLeader = Substitute.For<INode>();
+        fauxLeader.State = NodeState.Leader;
+        var node = new Node([fauxLeader]);
+        fauxLeader.Id = node.Id + 1;
+        fauxLeader.Term = node.Term;
+
+        // Act
+        await node.ReceiveHeartbeat(fauxLeader.Term, fauxLeader.Id);
+
+        // Assert
+        node.LeaderId.Should().Be(fauxLeader.Id);
+
+    }
+
+    //Test #19
+    [Fact]
+    public async Task When_A_Candidate_Becomes_Leader_It_Immediately_Sends_Heartbeat()
+    {
+        // Arrange
+        var fauxNode1 = Substitute.For<INode>();
+        var fauxNode2 = Substitute.For<INode>();
+        var node = new Node([fauxNode1, fauxNode2]) { State = NodeState.Follower };
+
+        // Act
+        node.BecomeCandidate();
+        await node.SendVote();
+        node.BecomeLeader();
+
+        // Assert
+        await fauxNode1.Received(1).ReceiveHeartbeat(node.Term);
+        await fauxNode2.Received(1).ReceiveHeartbeat(node.Term);
+        node.State.Should().Be(NodeState.Leader);
+    }
+
+    //Test #9
+    [Fact]
+    public async Task If_A_Candidate_Gets_Majority_Votes_With_Unresponsive_Node_It_Still_Becomes_Leader()
+    {
+        // Arrange
+        var fauxNode1 = Substitute.For<INode>();
+        var fauxNode2 = Substitute.For<INode>();
+        var fauxNode3 = Substitute.For<INode>();
+        var fauxNode4 = Substitute.For<INode>();
+        var node = new Node([fauxNode1, fauxNode2, fauxNode3, fauxNode4]) { State = NodeState.Follower };
+
+        // Act
+        node.BecomeCandidate();
+        await node.SendVote();
+        await node.SendVote();
+        node.BecomeLeader();
+
+        // Assert
+        node.State.Should().Be(NodeState.Leader);
+    }
+
+    //Test #12
+    [Fact]
+    public async Task If_A_Candidate_Receives_RPC_From_Later_Term_It_Returns_To_Follower()
+    {
+        // Arrange
+        var fauxNode = Substitute.For<INode>();
+        var fauxLeaderNode = Substitute.For<INode>();
+        fauxLeaderNode.State = NodeState.Leader;
+        var candidateNode = new Node([fauxNode, fauxLeaderNode]) { State = NodeState.Follower };
+        fauxLeaderNode.Term = candidateNode.Term + 2;
+        fauxLeaderNode.Id = candidateNode.Id + 1;
+
+        // Act
+        candidateNode.BecomeCandidate();
+        candidateNode.Term.Should().BeLessThan(fauxLeaderNode.Term);
+        candidateNode.State.Should().Be(NodeState.Candidate);
+        await candidateNode.ReceiveHeartbeat(fauxLeaderNode.Term, fauxLeaderNode.Id);
+
+        // Assert
+        candidateNode.State.Should().Be(NodeState.Follower);
+        await fauxLeaderNode.Received(1).RespondHeartbeat();
+    }
+
+    //Test #13
+    [Fact]
+    public async Task If_A_Candidate_Receives_RPC_From_Equal_Term_It_Returns_To_Follower()
+    {
+        // Arrange
+        var fauxNode = Substitute.For<INode>();
+        var fauxLeaderNode = Substitute.For<INode>();
+        fauxLeaderNode.State = NodeState.Leader;
+        var candidateNode = new Node([fauxNode, fauxLeaderNode]) { State = NodeState.Follower };
+        fauxLeaderNode.Term = candidateNode.Term + 1;
+        fauxLeaderNode.Id = candidateNode.Id + 1;
+
+        // Act
+        candidateNode.BecomeCandidate();
+        candidateNode.Term.Should().Be(fauxLeaderNode.Term);
+        candidateNode.State.Should().Be(NodeState.Candidate);
+        await candidateNode.ReceiveHeartbeat(fauxLeaderNode.Term, fauxLeaderNode.Id);
+
+        // Assert
+        candidateNode.State.Should().Be(NodeState.Follower);
+        await fauxLeaderNode.Received(1).RespondHeartbeat();
+    }
+
+    //Test #15
+    [Fact]
+    public async Task If_A_Follower_Receives_A_Second_VoteRequest_From_A_Future_Term_It_Votes_Yes()
+    {
+        // Arrange
+        var fauxCandidate = Substitute.For<INode>();
+        fauxCandidate.State = NodeState.Candidate;
+        var fauxCandidate2 = Substitute.For<INode>();
+        fauxCandidate2.State = NodeState.Candidate;
+        var followerNode = new Node([fauxCandidate, fauxCandidate2]);
+        fauxCandidate.Id = followerNode.Id + 1;
+        fauxCandidate.Term = followerNode.Term + 1;
+        fauxCandidate2.Id = followerNode.Id + 2;
+        fauxCandidate2.Term = followerNode.Term + 2;
+
+        // Act
+        await followerNode.ReceiveRequestVote(fauxCandidate.Id);
+        await followerNode.ReceiveRequestVote(fauxCandidate2.Id);
+
+        // Assert
+        await fauxCandidate.Received(1).SendVote();
+        await fauxCandidate2.Received(1).SendVote();
+    }
+
+    //Test #14
+    [Fact]
+    public async Task If_A_Follower_Receives_A_Second_VoteRequest_From_The_Same_Term_It_Votes_No()
+    {
+        // Arrange
+        var fauxCandidate = Substitute.For<INode>();
+        fauxCandidate.State = NodeState.Candidate;
+        var fauxCandidate2 = Substitute.For<INode>();
+        fauxCandidate2.State = NodeState.Candidate;
+        var followerNode = new Node([fauxCandidate, fauxCandidate2]);
+        fauxCandidate.Id = followerNode.Id + 1;
+        fauxCandidate.Term = followerNode.Term + 1;
+        fauxCandidate2.Id = fauxCandidate.Id + 1;
+        fauxCandidate2.Term = fauxCandidate.Term;
+
+        // Act
+        await followerNode.ReceiveRequestVote(fauxCandidate.Id);
+        await followerNode.ReceiveRequestVote(fauxCandidate2.Id);
+
+        // Assert
+        await fauxCandidate.Received(1).SendVote();
+        await fauxCandidate2.Received(0).SendVote();
     }
 }

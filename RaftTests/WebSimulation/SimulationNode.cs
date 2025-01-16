@@ -31,6 +31,12 @@ public class SimulationNode : INode
 
     public Task SendVote()
     {
-        throw new NotImplementedException();
+        return Task.CompletedTask;
+    }
+
+    public Task ReceiveRequestVote(int candidateId)
+    {
+        ((INode)InnerNode).ReceiveRequestVote(candidateId);
+        return Task.CompletedTask;
     }
 }

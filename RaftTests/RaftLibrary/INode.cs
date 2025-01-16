@@ -10,4 +10,5 @@ public interface INode
     Task ReceiveHeartbeat(int id);
     Task RespondHeartbeat();
     Task SendVote();
+    Task ReceiveRequestVote(int candidateId);
 }

@@ -1,13 +1,12 @@
-﻿using System.Linq.Expressions;
-using System.Threading;
-using System.Timers;
-using System.Xml.Linq;
+﻿using System.Timers;
 
 namespace RaftLibrary;
 
 public class Node
 {
     public int Id { get; set; }
+    public int LeaderId { get; set; }
+    public int VotedTerm { get; set; }
     public int Term { get; set; }
     public NodeState State { get; set; }
     public System.Timers.Timer Timer { get; set; }
@@ -37,17 +36,18 @@ public class Node
         }
     }
 
-    public async Task ReceiveHeartbeat(int termId, int leaderId)
+    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId)
     {
-        var leader = Nodes.Find(node => node.Id == leaderId);
+        var leader = Nodes.Find(node => node.Id == receivedLeaderId);
         if (Timer.Enabled)
         {
             Timer.Stop();
         }
 
-        if(termId! >= Term && leader != null) 
+        if(receivedTermId! >= Term && leader != null) 
         {
             State = NodeState.Follower;
+            LeaderId = receivedLeaderId;
             ResetTimer();
             await leader.RespondHeartbeat();
         }
@@ -58,21 +58,20 @@ public class Node
         await Task.CompletedTask;
     }
 
-    public async Task RequestVotes(int requestedTerm)
+    public async Task RequestVotes(int candidateId)
     {
         foreach (INode _node in Nodes.Where(node => node.State == NodeState.Follower))
         {
-            if (requestedTerm !> Term)
-                await _node.SendVote();
+           await _node.ReceiveRequestVote(candidateId);
         }
     }
 
     public async Task ReceiveRequestVote(int candidateId)
     {
         var candidate = Nodes.Find(node => node.Id == candidateId);
-
-        if (candidate != null)
+        if (candidate != null && candidate.Term > Term && VotedTerm != candidate.Term)
             await candidate.SendVote();
+            VotedTerm = Term + 1;
 
     }
 
@@ -112,7 +111,7 @@ public class Node
         Votes.Add(Term);
     }
 
-    public void BecomeLeader()
+    public async void BecomeLeader()
     {
         int votesReceived = Votes.Count(entry => entry == Term);
         int majorityNodes = (Nodes.Count + 1) / 2;
@@ -121,9 +120,11 @@ public class Node
         {
             Timer.Stop();
             State = NodeState.Leader;
+            LeaderId = Id;
             Timer = new System.Timers.Timer(50);
             Timer.Elapsed += async (sender, e) => await SendHeartbeat();
             Timer.AutoReset = true;
+            await SendHeartbeat();
             Timer.Start();
         }
         else
