@@ -13,12 +13,26 @@ Welcome to your new app.
 @foreach(var node in nodes)
 {
 	<div>
-		@node.Id
+		Id: @node.Id
 	</div>
+	<div>
+		State: @node.State
+	</div>
+	<div>
+		Timer: @node.Timer.Interval
+	</div>
+	<div>
+		Term: @node.Term
+	</div>
+	<br />
+
 }
 
 
 @code {
+	bool isRunning = false;
+
+	private Timer? timer;
 	List<SimulationNode>? nodes = [];
 
 	void startSimulation()
@@ -36,6 +50,11 @@ Welcome to your new app.
 		node3.Nodes = [simulation2, simulation1];
 
 		nodes = [simulation1, simulation2, simulation3];
-		StateHasChanged();
+
+		isRunning = true;
+		timer = new Timer(_ =>
+		{
+			InvokeAsync(StateHasChanged);
+		}, null, 0, 200);
 	}
 }

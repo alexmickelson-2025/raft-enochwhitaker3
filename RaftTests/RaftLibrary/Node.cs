@@ -19,7 +19,8 @@ public class Node
         State = NodeState.Follower;
         Votes = [];
         Nodes = nodes ?? [];
-        Timer = new System.Timers.Timer(300);
+        int randomInterval = new Random().Next(150, 300);
+        Timer = new System.Timers.Timer(randomInterval);
         Timer.Elapsed += OnElectionTimeout;
         Timer.AutoReset = false;
         Timer.Start();
@@ -60,7 +61,7 @@ public class Node
 
     public async Task RequestVotes(int candidateId)
     {
-        foreach (INode _node in Nodes.Where(node => node.State == NodeState.Follower))
+        foreach (INode _node in Nodes)
         {
            await _node.ReceiveRequestVote(candidateId);
         }
@@ -69,10 +70,9 @@ public class Node
     public async Task ReceiveRequestVote(int candidateId)
     {
         var candidate = Nodes.Find(node => node.Id == candidateId);
-        if (candidate != null && candidate.Term > Term && VotedTerm != candidate.Term)
+        if (candidate != null && candidate.Term >= Term && VotedTerm != candidate.Term)
             await candidate.SendVote();
             VotedTerm = Term + 1;
-
     }
 
     public async Task SendVote()
@@ -84,7 +84,7 @@ public class Node
     public void ResetTimer()
     {
         Timer.Stop();
-        int randomInterval = new Random().Next(150, 299);
+        int randomInterval = new Random().Next(150, 300);
         Timer.Interval = randomInterval;
         Timer.Start();
     }
@@ -97,39 +97,45 @@ public class Node
                 BecomeCandidate();
                 break;
             case NodeState.Candidate:
-                BecomeLeader();
+                CheckElection();
                 break;
         }
 
     }
 
-    public void BecomeCandidate()
+    public async void BecomeCandidate()
     {
-        ResetTimer();
         State = NodeState.Candidate;
         Term += 1;
         Votes.Add(Term);
+        ResetTimer();
+        await RequestVotes(Id);
     }
 
-    public async void BecomeLeader()
+    public void CheckElection()
     {
         int votesReceived = Votes.Count(entry => entry == Term);
         int majorityNodes = (Nodes.Count + 1) / 2;
 
         if (votesReceived > majorityNodes && votesReceived > 1)
         {
-            Timer.Stop();
-            State = NodeState.Leader;
-            LeaderId = Id;
-            Timer = new System.Timers.Timer(50);
-            Timer.Elapsed += async (sender, e) => await SendHeartbeat();
-            Timer.AutoReset = true;
-            await SendHeartbeat();
-            Timer.Start();
+            BecomeLeader();
         }
         else
         {
-            ResetTimer();
+            BecomeCandidate();
         }
+    }
+
+    public async void BecomeLeader()
+    {
+        Timer.Stop();
+        State = NodeState.Leader;
+        LeaderId = Id;
+        Timer = new System.Timers.Timer(50);
+        Timer.Elapsed += async (sender, e) => await SendHeartbeat();
+        Timer.AutoReset = true;
+        await SendHeartbeat();
+        Timer.Start();
     }
 }

@@ -115,7 +115,7 @@ public class UnitTest1
         // Act
         await leader.SendVote();
         await leader.SendVote();
-        leader.BecomeLeader();
+        leader.CheckElection();
         await Task.Delay(200);
 
         // Assert
@@ -206,7 +206,7 @@ public class UnitTest1
         // Act
         node.BecomeCandidate();
         await node.SendVote();
-        node.BecomeLeader();
+        node.CheckElection();
 
         // Assert
         node.State.Should().Be(NodeState.Leader);
@@ -243,7 +243,7 @@ public class UnitTest1
         // Act
         node.BecomeCandidate();
         await node.SendVote();
-        node.BecomeLeader();
+        node.CheckElection();
 
         // Assert
         await fauxNode1.Received(1).ReceiveHeartbeat(node.Term);
@@ -266,7 +266,7 @@ public class UnitTest1
         node.BecomeCandidate();
         await node.SendVote();
         await node.SendVote();
-        node.BecomeLeader();
+        node.CheckElection();
 
         // Assert
         node.State.Should().Be(NodeState.Leader);

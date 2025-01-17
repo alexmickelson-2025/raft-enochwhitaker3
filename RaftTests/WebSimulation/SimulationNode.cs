@@ -17,6 +17,7 @@ public class SimulationNode : INode
     public System.Timers.Timer Timer { get => InnerNode.Timer; set => InnerNode.Timer = value; }
     public List<int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
 
+
     public Task ReceiveHeartbeat(int id)
     {
         ((INode)InnerNode).ReceiveHeartbeat(id);
@@ -34,9 +35,9 @@ public class SimulationNode : INode
         return Task.CompletedTask;
     }
 
-    public Task ReceiveRequestVote(int candidateId)
+    public async Task ReceiveRequestVote(int candidateId)
     {
-        ((INode)InnerNode).ReceiveRequestVote(candidateId);
-        return Task.CompletedTask;
+        await (InnerNode).ReceiveRequestVote(candidateId);
     }
+
 }
