@@ -33,7 +33,6 @@ public class UnitTest1
         var startTime = node.Timer.Interval;
 
         // Act
-        Thread.Sleep(200);
         await node.ReceiveHeartbeat(node.Term, leader.Id);
 
         // Assert
@@ -119,7 +118,7 @@ public class UnitTest1
         await Task.Delay(200);
 
         // Assert
-        await follower1.Received(5).ReceiveHeartbeat(leader.Term);
+        await follower1.Received(4).ReceiveHeartbeat(leader.Term, leader.Id);
     }
 
     //Test #18
@@ -246,8 +245,8 @@ public class UnitTest1
         node.CheckElection();
 
         // Assert
-        await fauxNode1.Received(1).ReceiveHeartbeat(node.Term);
-        await fauxNode2.Received(1).ReceiveHeartbeat(node.Term);
+        await fauxNode1.Received(1).ReceiveHeartbeat(node.Term, node.Id);
+        await fauxNode2.Received(1).ReceiveHeartbeat(node.Term, node.Id);
         node.State.Should().Be(NodeState.Leader);
     }
 

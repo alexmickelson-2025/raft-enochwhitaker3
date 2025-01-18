@@ -5,39 +5,52 @@ namespace WebSimulation;
 public class SimulationNode : INode
 {
     public readonly Node InnerNode;
-    public SimulationNode(Node node)
+    public int NetworkDelay { get; set; }
+    public SimulationNode(Node node, int? networkDelay = null)
     {
         this.InnerNode = node;
+        NetworkDelay = networkDelay ?? 0;
     }
 
     public int Id { get => InnerNode.Id; set => InnerNode.Id = value; }
-    public int LeaderID { get => InnerNode.Id; set => InnerNode.Id = value; }
+    public int LeaderID { get => InnerNode.LeaderId; set => InnerNode.LeaderId = value; }
     public int Term { get => InnerNode.Term; set => InnerNode.Term = value; }
     public NodeState State { get => InnerNode.State; set => InnerNode.State = value; }
     public System.Timers.Timer Timer { get => InnerNode.Timer; set => InnerNode.Timer = value; }
     public List<int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
+    public bool SimulationRunning { get; private set; } = false;
 
 
-    public Task ReceiveHeartbeat(int id)
+    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId)
     {
-        ((INode)InnerNode).ReceiveHeartbeat(id);
-        return Task.CompletedTask;
+        await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
+        {
+            await InnerNode.ReceiveHeartbeat(receivedTermId, receivedLeaderId);
+        });
     }
 
-    public Task RespondHeartbeat()
+    public async Task RespondHeartbeat()
     {
-        ((INode)InnerNode).RespondHeartbeat();  
-        return Task.CompletedTask;
+        await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
+        {
+            await InnerNode.RespondHeartbeat();
+        });
     }
 
-    public Task SendVote()
+    public async Task SendVote()
     {
-        return Task.CompletedTask;
+        await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
+        {
+            await InnerNode.SendVote();
+        });
+
     }
 
     public async Task ReceiveRequestVote(int candidateId)
     {
-        await (InnerNode).ReceiveRequestVote(candidateId);
+        await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
+        {
+            await InnerNode.ReceiveRequestVote(candidateId);
+        });
     }
-
 }

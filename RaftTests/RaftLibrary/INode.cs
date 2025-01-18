@@ -7,7 +7,7 @@ public interface INode
     public NodeState State { get; set; }
     public System.Timers.Timer Timer {  get; set; }
     public List<int> Votes { get; set; }
-    Task ReceiveHeartbeat(int id);
+    Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId);
     Task RespondHeartbeat();
     Task SendVote();
     Task ReceiveRequestVote(int candidateId);
