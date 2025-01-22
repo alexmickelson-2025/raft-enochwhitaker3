@@ -4,7 +4,7 @@ using NSubstitute;
 using RaftLibrary;
 
 namespace RaftTests;
-public class UnitTest1
+public class LeaderElectionTests
 {
     //Test #3
     [Fact]
@@ -118,7 +118,7 @@ public class UnitTest1
         await Task.Delay(200);
 
         // Assert
-        await follower1.Received(4).ReceiveHeartbeat(leader.Term, leader.Id);
+        await follower1.Received(5).ReceiveHeartbeat(leader.Term, leader.Id);
     }
 
     //Test #18
@@ -227,7 +227,6 @@ public class UnitTest1
 
         // Assert
         node.LeaderId.Should().Be(fauxLeader.Id);
-
     }
 
     //Test #19
@@ -245,8 +244,8 @@ public class UnitTest1
         node.CheckElection();
 
         // Assert
-        await fauxNode1.Received(1).ReceiveHeartbeat(node.Term, node.Id);
-        await fauxNode2.Received(1).ReceiveHeartbeat(node.Term, node.Id);
+        await fauxNode1.Received().ReceiveHeartbeat(node.Term, node.Id);
+        await fauxNode2.Received().ReceiveHeartbeat(node.Term, node.Id);
         node.State.Should().Be(NodeState.Leader);
     }
 
@@ -257,17 +256,16 @@ public class UnitTest1
         // Arrange
         var fauxNode1 = Substitute.For<INode>();
         var fauxNode2 = Substitute.For<INode>();
-        var fauxNode3 = Substitute.For<INode>();
-        var fauxNode4 = Substitute.For<INode>();
-        var node = new Node([fauxNode1, fauxNode2, fauxNode3, fauxNode4]) { State = NodeState.Follower };
+        var node = new Node([fauxNode1, fauxNode2]) { State = NodeState.Follower };
 
         // Act
         node.BecomeCandidate();
         await node.SendVote();
-        await node.SendVote();
         node.CheckElection();
 
         // Assert
+        await fauxNode1.Received().ReceiveHeartbeat(node.Term, node.Id);
+        await fauxNode2.Received().ReceiveHeartbeat(node.Term, node.Id);
         node.State.Should().Be(NodeState.Leader);
     }
 

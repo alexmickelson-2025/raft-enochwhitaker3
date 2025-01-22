@@ -19,7 +19,8 @@ public class SimulationNode : INode
     public System.Timers.Timer Timer { get => InnerNode.Timer; set => InnerNode.Timer = value; }
     public List<int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
     public bool SimulationRunning { get; private set; } = false;
-
+    public int AppendedEntry { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public List<string> Entries { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
     public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId)
     {
@@ -52,5 +53,15 @@ public class SimulationNode : INode
         {
             await InnerNode.ReceiveRequestVote(candidateId);
         });
+    }
+
+    public Task AppendEntriesRequest(string requestedEntry, int leaderId)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task AppendEntriesCommitted()
+    {
+        throw new NotImplementedException();
     }
 }
