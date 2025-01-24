@@ -20,13 +20,18 @@ public class SimulationNode : INode
     public List<int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
     public bool SimulationRunning { get; private set; } = false;
     public int AppendedEntry { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public List<string> Entries { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public int CommittedIndex { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public string CommandValue { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public int NextIndex { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public List<Entry> Log { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Dictionary<int, string> StateMachine { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    int? INode.CommittedIndex { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
     public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId)
     {
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
-            await InnerNode.ReceiveHeartbeat(receivedTermId, receivedLeaderId);
+            await InnerNode.ReceiveHeartbeat(receivedTermId, receivedLeaderId, 0, 0, 0);
         });
     }
 
@@ -34,7 +39,7 @@ public class SimulationNode : INode
     {
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
-            await InnerNode.RespondHeartbeat();
+            await InnerNode.RespondHeartbeat(Id, Term, Log.Count - 1, true);
         });
     }
 
@@ -61,6 +66,26 @@ public class SimulationNode : INode
     }
 
     public Task AppendEntriesCommitted()
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int committedIndex, List<Entry>? newEntry = null)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task RespondHeartbeat(int term, int logIndex, bool? addedToLog = null)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int committedIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntry = null)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? committedIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntry = null)
     {
         throw new NotImplementedException();
     }

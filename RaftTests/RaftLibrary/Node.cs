@@ -1,4 +1,5 @@
 ﻿using System.Timers;
+using System.Xml.Linq;
 
 namespace RaftLibrary;
 
@@ -13,12 +14,17 @@ public class Node
     public int MinInterval { get; set; }
     public int MaxInterval { get; set; }
     public int LeaderInterval { get; set; }
+    public int? CommittedIndex { get; set; }
+    public int NextIndex { get; set; }
+    public int CommittedResponseCount { get; set; }
     public System.Timers.Timer Timer { get; set; }
     public DateTime StartTime { get; set; }
-    public  double ElapsedTime { get; set; }
+    public double ElapsedTime { get; set; }
     public List<int> Votes { get; set; }
     public List<INode> Nodes { get; set; }
-    public List<string> Entries { get; set; }
+    public List<Entry> Log { get; set; }
+    public Dictionary<int, string> StateMachine { get; set; }
+    public Dictionary<int, int> OtherNextIndexes { get; set; }
 
     public Node(List<INode>? nodes = null, int? minInterval = null, int? maxInterval = null, int? leaderInterval = null)
     {
@@ -26,11 +32,13 @@ public class Node
         State = NodeState.Follower;
         Votes = [];
         Nodes = nodes ?? [];
-        Entries = [];
+        Log = [];
+        StateMachine = [];
+        OtherNextIndexes = [];
         MinInterval = minInterval ?? 150;
         MaxInterval = maxInterval ?? 300;
         LeaderInterval = leaderInterval ?? 50;
-
+        CommittedIndex = null;
         int randomInterval = new Random().Next(MinInterval, MaxInterval);
         Timer = new System.Timers.Timer(randomInterval);
         Timer.Elapsed += OnElectionTimeout;
@@ -42,24 +50,66 @@ public class Node
     public async Task SendHeartbeat()
     {
         StartTime = DateTime.Now;
+
         foreach (INode _node in Nodes)
         {
-            await _node.ReceiveHeartbeat(Term, Id);
+            bool didSucceed = CheckHeartbeat(_node);
+
+            if (didSucceed)
+            {
+                int _nodeNextIndex = OtherNextIndexes[_node.Id];
+                int differenceInLogs = Log.Count - _nodeNextIndex;
+                if (differenceInLogs > 0)
+                {
+                    List<Entry> newEntryList = Log.TakeLast(differenceInLogs).ToList();
+                    await _node.ReceiveHeartbeat(Term, Id, CommittedIndex, Log.Count - 1, Log[^1].Term, newEntryList);
+                }
+                else if (differenceInLogs == 0)
+                {
+                    if (Log.Count == 0)
+                        await _node.ReceiveHeartbeat(Term, Id, CommittedIndex, 0, Term);
+                    else await _node.ReceiveHeartbeat(Term, Id, CommittedIndex, Log.Count - 1, Log[^1].Term);
+                }
+            }
+            else
+            {
+                await RespondHeartbeat(_node.Id, _node.Term, _node.Log.Count - 1, false);
+            }
         }
         StartLeaderTimer();
     }
 
-    public void StartLeaderTimer()
+    public bool CheckHeartbeat(INode _node)
     {
-        Timer.Stop();
-        Timer.Dispose();
-        Timer = new System.Timers.Timer(LeaderInterval);
-        Timer.Elapsed += async (sender, e) => await SendHeartbeat();
-        Timer.AutoReset = false;
-        Timer.Start();
+        int? prevLogIndex;
+        int? prevLogTerm;
+        if (OtherNextIndexes[_node.Id] == 0)
+        {
+            prevLogIndex = null;
+            prevLogTerm = null;
+        }
+        else 
+        {
+            prevLogIndex = OtherNextIndexes[_node.Id] - 1;
+            prevLogTerm = Log[^1].Term;
+        }
+
+        if (prevLogIndex >= 0 && prevLogIndex < _node.Log.Count)
+        {
+            if( _node.Log[(int)prevLogIndex].Term == prevLogTerm )
+            {
+                return true;
+            }
+            return false;
+        }
+        else if(_node.Log.Count == 0 && Log.Count <= 1)
+        {
+            return true;
+        }
+        return false;
     }
 
-    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId)
+    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? leadersCommitIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntries = null)
     {
         var leader = Nodes.Find(node => node.Id == receivedLeaderId);
 
@@ -70,18 +120,40 @@ public class Node
             
             else
             {
-                State = NodeState.Follower;
-                LeaderId = receivedLeaderId;
-                Term = receivedTermId;
-                Votes.Clear();
-                ResetTimer();
-                await leader.RespondHeartbeat();
+                if(newEntries != null)
+                {
+                    foreach(var log in newEntries)
+                    {
+                        Log.Add(log);
+                    }
+                    BecomeFollower(leader, true);
+                }
+                else if (leadersCommitIndex > CommittedIndex || CommittedIndex == null && leadersCommitIndex != null)
+                {
+                    int bars = (int)leadersCommitIndex;
+                    Entry kms = Log[bars];
+                    CommitToStateMachine(kms);
+                    BecomeFollower(leader, true);
+                }
+                else
+                {
+                    BecomeFollower(leader, true);
+                }
             }
         }
     }
 
-    public async Task RespondHeartbeat()
+    public async Task RespondHeartbeat(int id, int term, int logIndex, bool result, bool? addedToLog = null)
     {
+        if (addedToLog != null && addedToLog == true)
+        {
+            CommittedResponseCount += 1;
+            CheckCommits();
+        }
+        else if (result == false)
+        {
+            OtherNextIndexes[id]--;
+        }
         await Task.CompletedTask;
     }
 
@@ -110,6 +182,16 @@ public class Node
         await Task.CompletedTask;
     }
 
+    public void StartLeaderTimer()
+    {
+        Timer.Stop();
+        Timer.Dispose();
+        Timer = new System.Timers.Timer(LeaderInterval);
+        Timer.Elapsed += async (sender, e) => await SendHeartbeat();
+        Timer.AutoReset = false;
+        Timer.Start();
+    }
+
     public void ResetTimer()
     {
         Timer.Stop();
@@ -133,15 +215,40 @@ public class Node
 
     }
 
+    public async void BecomeFollower(INode leader, bool success, bool? addedToLog = null)
+    {
+        State = NodeState.Follower;
+        LeaderId = leader.Id;
+        Term = leader.Term;
+        Votes.Clear();
+        ResetTimer();
+        if(addedToLog != null && addedToLog == true && success == true)
+            await leader.RespondHeartbeat(Term, Log.Count - 1, true);
+        else await leader.RespondHeartbeat(Term, Log.Count - 1);
+    }
+
     public async void BecomeCandidate()
     {
         State = NodeState.Candidate;
         Term += 1;
-        //Votes.Clear();
         Votes.Add(Term);
         VotedTerm = Term;
         ResetTimer();
         await RequestVotes(Id);
+    }
+
+    public async void BecomeLeader()
+    {
+        State = NodeState.Leader;
+        LeaderId = Id;
+        foreach (INode _node in Nodes)
+        {
+            if (!OtherNextIndexes.ContainsKey(_node.Id)) 
+            { 
+                OtherNextIndexes.Add(_node.Id, Log.Count); //it is log.count for seperation
+            }
+        }
+        await SendHeartbeat();
     }
 
     public void CheckElection()
@@ -159,11 +266,19 @@ public class Node
         }
     }
 
-    public async void BecomeLeader()
+    public void CheckCommits()
     {
-        State = NodeState.Leader;
-        LeaderId = Id;
-        await SendHeartbeat();
+        int majorityNodes = (Nodes.Count + 1) / 2;
+
+        if (CommittedResponseCount > majorityNodes && CommittedResponseCount > 1)
+        {
+            Entry entryToCommit = Log.Last();
+            CommitToStateMachine(entryToCommit);
+        }
+        else
+        {
+            return;
+        }
     }
 
     public double TimerElapsed()
@@ -173,28 +288,18 @@ public class Node
         return ElapsedTime;
     }
 
-    public async void ReceiveClientRequest(string requestedEntry, int leaderId)
+    public void ReceiveClientCommand(int requestedKey, string requestedCommand)
     {
-        Entries.Add(requestedEntry);
-        foreach (INode _node in Nodes)
-        {
-            await _node.AppendEntriesRequest(requestedEntry, leaderId);
-        }
+        Entry newEntry = new(requestedKey, requestedCommand, Term);
+        Log.Add(newEntry);
     }
 
-    public async Task AppendEntriesRequest(string entry, int leaderId)
+    public void CommitToStateMachine(Entry entry)
     {
-        var leader = Nodes.Find(node => node.Id == leaderId);
-        if (leader != null)
-        {
-            Entries.Add(entry);
-            await leader.AppendEntriesCommitted();
-        }
-    }
-
-    public async Task AppendEntriesCommitted()
-    {
-        AppendedEntry += 1;
-        await Task.CompletedTask;
+        CommittedResponseCount = 0;
+        StateMachine.Add(entry.Key, entry.Command);
+        if (CommittedIndex == null)
+            CommittedIndex = 0;
+        else CommittedIndex += 1;
     }
 }
