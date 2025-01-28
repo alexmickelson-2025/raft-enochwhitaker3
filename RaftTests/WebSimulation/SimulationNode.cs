@@ -19,23 +19,23 @@ public class SimulationNode : INode
     public System.Timers.Timer Timer { get => InnerNode.Timer; set => InnerNode.Timer = value; }
     public List<int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
     public bool SimulationRunning { get; private set; } = false;
-    public int AppendedEntry { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int CommittedIndex { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public string CommandValue { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public int NextIndex { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public List<Entry> Log { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public Dictionary<int, string> StateMachine { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    int? INode.CommittedIndex { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public int AppendedEntry { get => InnerNode.AppendedEntry; set => InnerNode.AppendedEntry = value; }
+    public int CommittedIndex { get => (int)InnerNode.CommittedIndex; set => InnerNode.CommittedIndex = value; }
+    public int NextIndex { get => InnerNode.NextIndex; set => InnerNode.NextIndex = value; }
+    public List<Entry> Log { get => InnerNode.Log; set => InnerNode.Log = value; }
+    public Dictionary<int, string> StateMachine { get => InnerNode.StateMachine; set => InnerNode.StateMachine = value; }
+    int? INode.CommittedIndex { get => InnerNode.CommittedIndex; set => InnerNode.CommittedIndex = value; }
+    public bool IsRunning { get => InnerNode.IsRunning; set => InnerNode.IsRunning = value; }
 
-    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId)
+    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? committedIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntry = null)
     {
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
-            await InnerNode.ReceiveHeartbeat(receivedTermId, receivedLeaderId, 0, 0, 0);
+            await InnerNode.ReceiveHeartbeat(receivedTermId, receivedLeaderId, committedIndex, prevLogIndex, prevLogTerm);
         });
     }
 
-    public async Task RespondHeartbeat()
+    public async Task RespondHeartbeat(int id, int term, int logIndex, bool result, bool? addedToLog = null)
     {
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
@@ -70,22 +70,12 @@ public class SimulationNode : INode
         throw new NotImplementedException();
     }
 
-    public Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int committedIndex, List<Entry>? newEntry = null)
+    public void EditLog(int removeAmount)
     {
         throw new NotImplementedException();
     }
 
-    public Task RespondHeartbeat(int term, int logIndex, bool? addedToLog = null)
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int committedIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntry = null)
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? committedIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntry = null)
+    public List<Entry> GetLogList()
     {
         throw new NotImplementedException();
     }

@@ -109,6 +109,7 @@ public class LeaderElectionTests
     {
         // Arrange
         var follower1 = Substitute.For<INode>();
+        follower1.IsRunning = true;
         var leader = new Node([follower1]);
         follower1.Log = [];
 
@@ -137,7 +138,7 @@ public class LeaderElectionTests
         await follower.ReceiveHeartbeat(follower.Term - 1, leader.Id, leader.CommittedIndex,0,0);
 
         // Assert
-        await leader.Received(0).RespondHeartbeat(follower.Term, follower.Log.Count - 1);
+        await leader.Received(0).RespondHeartbeat(follower.Id, follower.Term, follower.Log.Count - 1, true);
     }
 
     //Test #17
@@ -155,7 +156,7 @@ public class LeaderElectionTests
         await follower.ReceiveHeartbeat(leader.Term, leader.Id, leader.CommittedIndex,0,0);
 
         // Assert
-        await leader.Received(1).RespondHeartbeat(follower.Term, follower.Log.Count - 1);
+        await leader.Received(1).RespondHeartbeat(follower.Id, follower.Term, follower.Log.Count - 1, true);
     }
 
     //Test #16
@@ -236,7 +237,9 @@ public class LeaderElectionTests
     {
         // Arrange
         var fauxNode1 = Substitute.For<INode>();
+        fauxNode1.IsRunning = true;
         var fauxNode2 = Substitute.For<INode>();
+        fauxNode2.IsRunning = true;
         var node = new Node([fauxNode1, fauxNode2]) { State = NodeState.Follower };
         fauxNode1.Log = [];
         fauxNode2.Log = [];
@@ -258,7 +261,9 @@ public class LeaderElectionTests
     {
         // Arrange
         var fauxNode1 = Substitute.For<INode>();
+        fauxNode1.IsRunning = true;
         var fauxNode2 = Substitute.For<INode>();
+        fauxNode2.IsRunning = true;
         var node = new Node([fauxNode1, fauxNode2]) { State = NodeState.Follower };
         fauxNode1.Log = [];
         fauxNode2.Log = [];
@@ -294,7 +299,7 @@ public class LeaderElectionTests
 
         // Assert
         candidateNode.State.Should().Be(NodeState.Follower);
-        await fauxLeaderNode.Received(1).RespondHeartbeat(candidateNode.Term, candidateNode.Log.Count - 1);
+        await fauxLeaderNode.Received(1).RespondHeartbeat(candidateNode.Id, candidateNode.Term, candidateNode.Log.Count - 1, true);
     }
 
     //Test #13
@@ -317,7 +322,7 @@ public class LeaderElectionTests
 
         // Assert
         candidateNode.State.Should().Be(NodeState.Follower);
-        await fauxLeaderNode.Received(1).RespondHeartbeat(candidateNode.Term, candidateNode.Log.Count - 1);
+        await fauxLeaderNode.Received(1).RespondHeartbeat(candidateNode.Id, candidateNode.Term, candidateNode.Log.Count - 1, true);
     }
 
     //Test #15
@@ -366,5 +371,79 @@ public class LeaderElectionTests
         // Assert
         await fauxCandidate.Received(1).SendVote();
         await fauxCandidate2.Received(0).SendVote();
+    }
+
+    //Test in class #1
+    [Fact]
+    public async Task When_Leader_Node_Is_In_Election_Loop_Then_They_Get_Paused_Other_Nodes_DoNot_Get_Heartbeat_For_400ms()
+    {
+        // Arrange
+        var fauxNode = Substitute.For<INode>();
+        var node = new Node([fauxNode]);
+        fauxNode.IsRunning = true;
+        fauxNode.Id = node.Id + 1;
+        fauxNode.Term = node.Term + 1;
+        fauxNode.Log = [];
+
+        // Act
+        node.BecomeLeader();
+        node.TogglePause(true);
+        await Task.Delay(400);
+
+        // Assert
+        await fauxNode.Received(1).ReceiveHeartbeat(node.Term, node.Id, node.CommittedIndex, 0, 0);
+    }
+
+    //Test in class #1
+    [Fact]
+    public async Task When_Leader_Node_Is_In_Election_Loop_Then_They_Get_Paused_Other_Nodes_DoNot_Get_Heartbeat_For_400ms_Then_When_Unpaused_They_Recieve_Again()
+    {
+        // Arrange
+        var fauxNode = Substitute.For<INode>();
+        var node = new Node([fauxNode]);
+        fauxNode.Id = node.Id + 1;
+        fauxNode.IsRunning = true;
+        fauxNode.Term = node.Term + 1;
+        fauxNode.Log = [];
+
+        // Act
+        node.BecomeLeader();
+        node.TogglePause(true);
+        await Task.Delay(400);
+        node.TogglePause(false);
+        await Task.Delay(100);
+
+        // Assert
+        await fauxNode.Received(2).ReceiveHeartbeat(node.Term, node.Id, node.CommittedIndex, 0, 0);
+    }
+
+    [Fact]
+    public async Task When_Follower_Gets_Paused_It_Does_Not_Become_A_Candidate()
+    {
+        // Arrange
+        var node = new Node();
+
+        // Act
+        node.TogglePause(true);
+        await Task.Delay(400);
+
+        // Assert
+        node.State.Should().Be(NodeState.Follower);
+    }
+
+    [Fact]
+    public async Task When_Follower_Gets_UnPaused_After_Being_Paused_It_Eventually_Becomes_Candidate()
+    {
+        // Arrange
+        var node = new Node();
+
+        // Act
+        node.TogglePause(true);
+        await Task.Delay(400);
+        node.TogglePause(false);
+        await Task.Delay(300);
+
+        // Assert
+        node.State.Should().Be(NodeState.Candidate);
     }
 }

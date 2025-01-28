@@ -50,7 +50,7 @@
                 <div>
                     Leader is @node.LeaderID
                 </div>
-                <div>
+                @*                 <div>
                     Home Delay @networkDelay
                 </div>
                 <div>
@@ -61,7 +61,7 @@
                 </div>
                 <div>
                     Votes: @string.Join(", ", node.InnerNode.Votes)
-                </div>
+                </div> *@
                 <div>
                     <div class="progress" role="progressbar" aria-label="Basic example"
                     aria-valuenow=@(Math.Abs(node.InnerNode.TimerElapsed())) aria-valuemin="0"
@@ -70,6 +70,18 @@
                         </div>
                     </div>
                 </div>
+                @if(node.InnerNode.IsRunning == true)
+                {
+                    <button class="btn-outline-danger mt-4" @onclick="() => node.InnerNode.TogglePause(true)">
+                        Pause Node
+                    </button>
+                }
+                @if (node.InnerNode.IsRunning == false)
+                {
+                    <button class="btn-outline-danger mt-4" @onclick="() => node.InnerNode.TogglePause(false)">
+                        Unpause Node
+                    </button>
+                }
             </div>
         </div>
     }

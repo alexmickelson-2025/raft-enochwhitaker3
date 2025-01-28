@@ -11,6 +11,7 @@ public class Node
     public int Term { get; set; }
     public int AppendedEntry { get; set; }
     public NodeState State { get; set; }
+    public bool IsRunning { get; set; }
     public int MinInterval { get; set; }
     public int MaxInterval { get; set; }
     public int LeaderInterval { get; set; }
@@ -30,6 +31,7 @@ public class Node
     {
         Id = new Random().Next(1, 10000);
         State = NodeState.Follower;
+        IsRunning = true;
         Votes = [];
         Nodes = nodes ?? [];
         Log = [];
@@ -51,7 +53,7 @@ public class Node
     {
         StartTime = DateTime.Now;
 
-        foreach (INode _node in Nodes)
+        foreach (INode _node in Nodes.Where(x => x.IsRunning == true))
         {
             bool didSucceed = CheckHeartbeat(_node);
 
@@ -79,7 +81,7 @@ public class Node
         StartLeaderTimer();
     }
 
-    public bool CheckHeartbeat(INode _node)
+    public bool CheckHeartbeat(INode _node) //probably gonna cause issues on kubernetes since I am directly calling node
     {
         int? prevLogIndex;
         int? prevLogTerm;
@@ -88,23 +90,30 @@ public class Node
             prevLogIndex = null;
             prevLogTerm = null;
         }
-        else 
+        else
         {
             prevLogIndex = OtherNextIndexes[_node.Id] - 1;
             prevLogTerm = Log[^1].Term;
         }
 
-        if (prevLogIndex >= 0 && prevLogIndex < _node.Log.Count)
+        if (prevLogIndex >= 0 && prevLogIndex == _node.Log.Count - 1)
         {
-            if( _node.Log[(int)prevLogIndex].Term == prevLogTerm )
+            if (_node.Log[(int)prevLogIndex].Term == prevLogTerm)
             {
                 return true;
             }
             return false;
         }
-        else if(_node.Log.Count == 0 && Log.Count <= 1)
+        else if (_node.Log.Count == 0 && Log.Count <= 1)
         {
+            OtherNextIndexes[_node.Id] = 0;
             return true;
+        }
+        else if (_node.Log.Count > prevLogIndex)
+        {
+            int n = (_node.Log.Count - 1) - (int)prevLogIndex;
+            _node.EditLog(n);
+            return false; //this might cause problems in the future
         }
         return false;
     }
@@ -115,14 +124,14 @@ public class Node
 
         if (receivedTermId >= Term && leader != null)
         {
-            if(State == NodeState.Leader && receivedTermId == Term)
+            if (State == NodeState.Leader && receivedTermId == Term)
                 await Task.CompletedTask;
-            
+
             else
             {
-                if(newEntries != null)
+                if (newEntries != null)
                 {
-                    foreach(var log in newEntries)
+                    foreach (var log in newEntries)
                     {
                         Log.Add(log);
                     }
@@ -159,7 +168,7 @@ public class Node
 
     public async Task RequestVotes(int candidateId)
     {
-        foreach (INode _node in Nodes)
+        foreach (INode _node in Nodes.Where(x => x.IsRunning == true))
         {
             await _node.ReceiveRequestVote(candidateId);
         }
@@ -222,9 +231,9 @@ public class Node
         Term = leader.Term;
         Votes.Clear();
         ResetTimer();
-        if(addedToLog != null && addedToLog == true && success == true)
-            await leader.RespondHeartbeat(Term, Log.Count - 1, true);
-        else await leader.RespondHeartbeat(Term, Log.Count - 1);
+        if (addedToLog != null && addedToLog == true && success == true)
+            await leader.RespondHeartbeat(Id, Term, Log.Count - 1, success, addedToLog);
+        else await leader.RespondHeartbeat(Id, Term, Log.Count - 1, success, null);
     }
 
     public async void BecomeCandidate()
@@ -243,9 +252,9 @@ public class Node
         LeaderId = Id;
         foreach (INode _node in Nodes)
         {
-            if (!OtherNextIndexes.ContainsKey(_node.Id)) 
-            { 
-                OtherNextIndexes.Add(_node.Id, Log.Count); //it is log.count for seperation
+            if (!OtherNextIndexes.ContainsKey(_node.Id))
+            {
+                OtherNextIndexes.TryAdd(_node.Id, Log.Count); //it is log.count for seperation
             }
         }
         await SendHeartbeat();
@@ -294,6 +303,14 @@ public class Node
         Log.Add(newEntry);
     }
 
+    public void EditLog(int removeAmount)
+    {
+        if (removeAmount > 0 && removeAmount <= Log.Count)
+        {
+            Log.RemoveRange(Log.Count - removeAmount, removeAmount);
+        }
+    }
+
     public void CommitToStateMachine(Entry entry)
     {
         CommittedResponseCount = 0;
@@ -301,5 +318,27 @@ public class Node
         if (CommittedIndex == null)
             CommittedIndex = 0;
         else CommittedIndex += 1;
+    }
+
+    public void TogglePause(bool pause)
+    {
+        if (pause == true)
+        {
+            Timer.Stop();
+            IsRunning = false;
+        }
+        if (pause == false)
+        {
+            if (State == NodeState.Leader)
+            {
+                IsRunning = true;
+                StartLeaderTimer();
+            }
+            else
+            {
+                IsRunning = true;
+                ResetTimer();
+            }
+        }
     }
 }
