@@ -13,8 +13,8 @@ public interface INode
     public List<int> Votes { get; set; }
     public List<Entry> Log { get; set; }
     public Dictionary<int, string> StateMachine { get; set; }
-    Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? committedIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntry = null);
-    Task RespondHeartbeat(int id, int term, int logIndex, bool result, bool? addedToLog = null);
+    Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? prevLogIndex, int? prevLogTerm, int? leadersCommitIndex, List<Entry>? newEntries = null);
+    Task RespondHeartbeat(int id, int term, int? logIndex, bool result, bool? addedToLog = null);
     Task SendVote();
     Task ReceiveRequestVote(int candidateId);
     Task AppendEntriesRequest(string requestedEntry, int leaderId);

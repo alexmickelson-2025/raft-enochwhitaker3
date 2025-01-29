@@ -26,8 +26,9 @@ public class Node
     public List<Entry> Log { get; set; }
     public Dictionary<int, string> StateMachine { get; set; }
     public Dictionary<int, int> OtherNextIndexes { get; set; }
+    public IClient Client { get; set; }
 
-    public Node(List<INode>? nodes = null, int? minInterval = null, int? maxInterval = null, int? leaderInterval = null)
+    public Node(List<INode>? nodes = null, int? minInterval = null, int? maxInterval = null, int? leaderInterval = null, IClient? client = null)
     {
         Id = new Random().Next(1, 10000);
         State = NodeState.Follower;
@@ -47,87 +48,45 @@ public class Node
         Timer.AutoReset = false;
         Timer.Start();
         StartTime = DateTime.Now;
+        Client = client ?? new Client();
     }
 
     public async Task SendHeartbeat()
     {
         StartTime = DateTime.Now;
 
-        foreach (INode _node in Nodes.Where(x => x.IsRunning == true))
+        foreach (INode _node in Nodes)
         {
-            bool didSucceed = CheckHeartbeat(_node);
-
-            if (didSucceed)
+            int _nodeNextIndex = OtherNextIndexes[_node.Id]; //where the leader thinks the node's next index is
+            int differenceInLogs = Log.Count - _nodeNextIndex; //seeing if it should receive log
+            if (differenceInLogs > 0) //if difference in log is greater than 0, then there is a log to be sent 
             {
-                int _nodeNextIndex = OtherNextIndexes[_node.Id];
-                int differenceInLogs = Log.Count - _nodeNextIndex;
-                if (differenceInLogs > 0)
-                {
-                    List<Entry> newEntryList = Log.TakeLast(differenceInLogs).ToList();
-                    await _node.ReceiveHeartbeat(Term, Id, CommittedIndex, Log.Count - 1, Log[^1].Term, newEntryList);
-                }
-                else if (differenceInLogs == 0)
-                {
-                    if (Log.Count == 0)
-                        await _node.ReceiveHeartbeat(Term, Id, CommittedIndex, 0, Term);
-                    else await _node.ReceiveHeartbeat(Term, Id, CommittedIndex, Log.Count - 1, Log[^1].Term);
-                }
+                List<Entry> newEntryList = Log.TakeLast(differenceInLogs).ToList();
+                await _node.ReceiveHeartbeat(Term, Id, Log.Count - 1, Log[^1].Term, CommittedIndex, newEntryList);
             }
-            else
+            else if (differenceInLogs == 0)
             {
-                await RespondHeartbeat(_node.Id, _node.Term, _node.Log.Count - 1, false);
+                if (Log.Count == 0) //handling if there hasn't been a single log yet 
+                    await _node.ReceiveHeartbeat(Term, Id, null, null, null);
+                else await _node.ReceiveHeartbeat(Term, Id, Log.Count - 1, Log[^1].Term, CommittedIndex);
             }
         }
         StartLeaderTimer();
     }
 
-    public bool CheckHeartbeat(INode _node) //probably gonna cause issues on kubernetes since I am directly calling node
-    {
-        int? prevLogIndex;
-        int? prevLogTerm;
-        if (OtherNextIndexes[_node.Id] == 0)
-        {
-            prevLogIndex = null;
-            prevLogTerm = null;
-        }
-        else
-        {
-            prevLogIndex = OtherNextIndexes[_node.Id] - 1;
-            prevLogTerm = Log[^1].Term;
-        }
 
-        if (prevLogIndex >= 0 && prevLogIndex == _node.Log.Count - 1)
-        {
-            if (_node.Log[(int)prevLogIndex].Term == prevLogTerm)
-            {
-                return true;
-            }
-            return false;
-        }
-        else if (_node.Log.Count == 0 && Log.Count <= 1)
-        {
-            OtherNextIndexes[_node.Id] = 0;
-            return true;
-        }
-        else if (_node.Log.Count > prevLogIndex)
-        {
-            int n = (_node.Log.Count - 1) - (int)prevLogIndex;
-            _node.EditLog(n);
-            return false; //this might cause problems in the future
-        }
-        return false;
-    }
-
-    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? leadersCommitIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntries = null)
+    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? prevLogIndex, int? prevLogTerm, int? leadersCommitIndex, List<Entry>? newEntries = null)
     {
         var leader = Nodes.Find(node => node.Id == receivedLeaderId);
 
-        if (receivedTermId >= Term && leader != null)
+        if (receivedTermId >= Term && leader != null && IsRunning == true)
         {
             if (State == NodeState.Leader && receivedTermId == Term)
                 await Task.CompletedTask;
 
-            else
+            bool canAccept = CheckHeartbeat(prevLogIndex, prevLogTerm);
+
+            if(canAccept == true) 
             {
                 if (newEntries != null)
                 {
@@ -135,40 +94,75 @@ public class Node
                     {
                         Log.Add(log);
                     }
-                    BecomeFollower(leader, true);
+                    BecomeFollower(receivedLeaderId);
+                    await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, true, true);
                 }
                 else if (leadersCommitIndex > CommittedIndex || CommittedIndex == null && leadersCommitIndex != null)
                 {
                     int bars = (int)leadersCommitIndex;
                     Entry kms = Log[bars];
                     CommitToStateMachine(kms);
-                    BecomeFollower(leader, true);
+                    BecomeFollower(receivedLeaderId);
+                    await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, true);
                 }
                 else
                 {
-                    BecomeFollower(leader, true);
+                    BecomeFollower(receivedLeaderId);
+                    await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, true);
                 }
+            }
+            else
+            {
+                BecomeFollower(receivedLeaderId);
+                await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, false);
             }
         }
     }
 
-    public async Task RespondHeartbeat(int id, int term, int logIndex, bool result, bool? addedToLog = null)
+    public bool CheckHeartbeat(int? prevLogIndex, int? prevLogTerm)
+    {
+        if(prevLogIndex != null && prevLogTerm != null)
+        {
+            if(Log.Count == 0)
+            {
+                return true;
+            }
+            else if (prevLogIndex >= 0 && prevLogIndex == Log.Count - 1)
+            {
+                if (Log[(int)prevLogIndex].Term == prevLogTerm)
+                {
+                    return true;
+                }
+                return false;
+            }
+            else if (Log.Count > prevLogIndex)
+            {
+                int n = (Log.Count - 1) - (int)prevLogIndex;
+                EditLog(n);
+                return false; //this might cause problems in the future
+            }
+            return false;
+        }
+        return true; //this ALSO might cause problems killin myself if it does lowkey
+    }
+
+    public async Task RespondHeartbeat(int followerId, int term, int? logIndex, bool acceptedRPC, bool? addedToLog = null)
     {
         if (addedToLog != null && addedToLog == true)
         {
             CommittedResponseCount += 1;
             CheckCommits();
         }
-        else if (result == false)
+        else if (acceptedRPC == false && logIndex < Log.Count - 1)
         {
-            OtherNextIndexes[id]--;
+            OtherNextIndexes[followerId]--;
         }
         await Task.CompletedTask;
     }
 
     public async Task RequestVotes(int candidateId)
     {
-        foreach (INode _node in Nodes.Where(x => x.IsRunning == true))
+        foreach (INode _node in Nodes)
         {
             await _node.ReceiveRequestVote(candidateId);
         }
@@ -177,7 +171,7 @@ public class Node
     public async Task ReceiveRequestVote(int candidateId)
     {
         var candidate = Nodes.Find(node => node.Id == candidateId);
-        if (candidate != null && candidate.Term >= Term && VotedTerm != candidate.Term)
+        if (candidate != null && candidate.Term >= Term && VotedTerm != candidate.Term && IsRunning == true)
         {
             VotedTerm = candidate.Term;
             await candidate.SendVote();
@@ -224,16 +218,18 @@ public class Node
 
     }
 
-    public async void BecomeFollower(INode leader, bool success, bool? addedToLog = null)
+    public async void BecomeFollower(int leaderId)
     {
-        State = NodeState.Follower;
-        LeaderId = leader.Id;
-        Term = leader.Term;
-        Votes.Clear();
-        ResetTimer();
-        if (addedToLog != null && addedToLog == true && success == true)
-            await leader.RespondHeartbeat(Id, Term, Log.Count - 1, success, addedToLog);
-        else await leader.RespondHeartbeat(Id, Term, Log.Count - 1, success, null);
+        var leader = Nodes.Find(node => node.Id == leaderId);
+        if ( leader != null)
+        {
+            State = NodeState.Follower;
+            LeaderId = leader.Id;
+            Term = leader.Term;
+            Votes.Clear();
+            ResetTimer();
+        }
+        await Task.CompletedTask;
     }
 
     public async void BecomeCandidate()
@@ -315,6 +311,7 @@ public class Node
     {
         CommittedResponseCount = 0;
         StateMachine.Add(entry.Key, entry.Command);
+        Client.hasCommittedCommand(entry.Key);
         if (CommittedIndex == null)
             CommittedIndex = 0;
         else CommittedIndex += 1;

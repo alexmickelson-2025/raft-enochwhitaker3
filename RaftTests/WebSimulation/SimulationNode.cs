@@ -27,7 +27,7 @@ public class SimulationNode : INode
     int? INode.CommittedIndex { get => InnerNode.CommittedIndex; set => InnerNode.CommittedIndex = value; }
     public bool IsRunning { get => InnerNode.IsRunning; set => InnerNode.IsRunning = value; }
 
-    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? committedIndex, int prevLogIndex, int prevLogTerm, List<Entry>? newEntry = null)
+    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? prevLogIndex, int? prevLogTerm, int? committedIndex, List<Entry>? newEntry = null)
     {
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
@@ -35,7 +35,7 @@ public class SimulationNode : INode
         });
     }
 
-    public async Task RespondHeartbeat(int id, int term, int logIndex, bool result, bool? addedToLog = null)
+    public async Task RespondHeartbeat(int id, int term, int? logIndex, bool result, bool? addedToLog = null)
     {
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
