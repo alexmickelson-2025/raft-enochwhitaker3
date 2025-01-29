@@ -60,22 +60,20 @@ public class SimulationNode : INode
         });
     }
 
+    public void EditLog(int removeAmount)
+    {
+        Task.Delay(NetworkDelay).ContinueWith((_previousTask) =>
+        {
+            InnerNode.EditLog(removeAmount);
+        });
+    }
+
     public Task AppendEntriesRequest(string requestedEntry, int leaderId)
     {
         throw new NotImplementedException();
     }
 
     public Task AppendEntriesCommitted()
-    {
-        throw new NotImplementedException();
-    }
-
-    public void EditLog(int removeAmount)
-    {
-        throw new NotImplementedException();
-    }
-
-    public List<Entry> GetLogList()
     {
         throw new NotImplementedException();
     }

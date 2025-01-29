@@ -19,6 +19,5 @@ public interface INode
     Task ReceiveRequestVote(int candidateId);
     Task AppendEntriesRequest(string requestedEntry, int leaderId);
     Task AppendEntriesCommitted();
-    List<Entry> GetLogList();
     void EditLog(int removeAmount);
 }
