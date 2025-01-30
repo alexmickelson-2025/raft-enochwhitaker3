@@ -1,42 +1,59 @@
-using Castle.Core.Logging;
 using FluentAssertions;
 using NSubstitute;
 using RaftLibrary;
-using System.Collections.Generic;
-using System.Diagnostics.Metrics;
-using System;
-using Castle.Components.DictionaryAdapter.Xml;
+using static RaftLibrary.DTOs;
 
 namespace RaftTests;
 public class LogTests
 {
+    public bool AreObjectsEquivalent(object obj1, object obj2)
+    {
+        try
+        {
+            obj1.Should().BeEquivalentTo(obj2);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // Test 1
     [Fact]
     public async Task When_Leader_Receives_ClientCommand_It_Sends_Log_Entry_In_Next_RPC()
     {
         // Arrange
         var fauxNode = Substitute.For<INode>();
-        fauxNode.State = NodeState.Follower;
         var node = new Node([fauxNode]) { State = NodeState.Leader };
         fauxNode.Id = node.Id + 1;
-        fauxNode.IsRunning = true;
-        fauxNode.Log = [];
         node.OtherNextIndexes.Add(fauxNode.Id, node.Log.Count);
 
         // Act
-        node.ReceiveClientCommand(12345, "12345");
+        Entry newEntry = new(1, "Command1", 0);
+        node.ReceiveClientCommand(1, "Command1");
         await node.SendHeartbeat();
 
         // Assert
-        await fauxNode.Received().ReceiveHeartbeat(
-            node.Term,
-            node.Id,
-            node.Log.Count - 1,
-            node.Log[^1].Term,
-            node.CommittedIndex,
-            Arg.Is<List<Entry>>(entry =>
-                entry != null && entry[0].Command == "12345" && entry[0].Term == node.Term)
-        );
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = node.Log.Count - 1,
+            prevLogTerm = node.Log[^1].Term,
+            leadersCommitIndex = node.CommittedIndex,
+            newEntries = [newEntry]
+        };
+
+       await fauxNode.Received(1).ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+            && data.newEntries != null
+            && AreObjectsEquivalent(data.newEntries, heartbeatData.newEntries)
+        ));
     }
 
     // Test 2
@@ -45,7 +62,7 @@ public class LogTests
     {
         // Arrange
         var node = new Node() { State = NodeState.Leader };
-        Entry expectedEntry = new(12345, "12345", node.Term );
+        Entry expectedEntry = new(12345, "12345", node.Term);
 
         // Act
         node.ReceiveClientCommand(12345, "12345");
@@ -71,17 +88,15 @@ public class LogTests
     {
         // Arrange
         var fauxNode = Substitute.For<INode>();
-        fauxNode.State = NodeState.Follower;
         var node = new Node([fauxNode]);
         fauxNode.Id = node.Id + 1;
-        fauxNode.Log = [];
-
 
         // Act
         node.BecomeLeader();
 
         // Assert
-        fauxNode.NextIndex.Should().Be(node.Log.Count);
+        node.OtherNextIndexes.Count.Should().Be(1);
+        node.OtherNextIndexes[fauxNode.Id] = node.Log.Count();
     }
 
     // Test 5
@@ -90,12 +105,10 @@ public class LogTests
     {
         // Arrange
         var fauxNode = Substitute.For<INode>();
-        fauxNode.IsRunning = true;
-        fauxNode.Id = 1;
         var fauxNode2 = Substitute.For<INode>();
-        fauxNode2.IsRunning = true;
-        fauxNode2.Id = 2;
         var node = new Node([fauxNode, fauxNode2]);
+        fauxNode.Id = node.Id + 1;
+        fauxNode2.Id = node.Id + 2;
 
         node.Log = [
                 new Entry(1,"Command1", node.Term), // 0 
@@ -104,55 +117,62 @@ public class LogTests
                 new Entry(4, "Command4", node.Term)  // INDEX 3, COUNT = 4, NEXT INDEX = 4
             ];
 
-        fauxNode.Log = [
-                new Entry(1, "Command1", node.Term), // 0
-                new Entry(2, "Command2", node.Term), // 1
-                new Entry(3, "Command3", node.Term), // INDEX = 2, COUNT = 3, NEXT INDEX = 3
-            ];
-
-        fauxNode2.Log = [
-                new Entry(1, "Command1", node.Term), // INDEX = 0, COUNT = 1, NEXT INDEX = 1
-            ];
-
-        node.OtherNextIndexes[1] = 3;
-        node.OtherNextIndexes[2] = 1;
+        node.OtherNextIndexes[fauxNode.Id] = 3;
+        node.OtherNextIndexes[fauxNode2.Id] = 1;
 
         // Act
-        node.BecomeLeader();
+        await node.SendHeartbeat();
         await Task.Delay(200);
 
         // Assert
-        await fauxNode.Received().ReceiveHeartbeat(
-            node.Term,
-            node.Id,
-            node.Log.Count - 1,
-            node.Log[^1].Term,
-            node.CommittedIndex,
-            Arg.Is<List<Entry>>(entries =>
-                entries.Count == 1 &&  
-                entries[0].Command == "Command4" &&
-                entries[0].Term == node.Term
-            )
-        );
+        var list1 = new List<Entry>
+        {
+            new Entry(4, "Command4", node.Term)
+        };
+        var list2 = new List<Entry>
+        {
+            new Entry(2, "Command2", node.Term), 
+            new Entry(3, "Command3", node.Term), 
+            new Entry(4, "Command4", node.Term)
+        };
+        var heartbeatData1 = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = node.Log.Count - 1,
+            prevLogTerm = node.Log[^1].Term,
+            leadersCommitIndex = node.CommittedIndex,
+            newEntries = list1
+        };
+        var heartbeatData2 = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = node.Log.Count - 1,
+            prevLogTerm = node.Log[^1].Term,
+            leadersCommitIndex = node.CommittedIndex,
+            newEntries = list2
+        };
 
-        await fauxNode2.Received().ReceiveHeartbeat(
-            node.Term,
-            node.Id,
-            node.Log.Count - 1,
-            node.Log[^1].Term,
-            node.CommittedIndex,
-            Arg.Is<List<Entry>>(entries =>
-                entries.Count == 3 && 
-                entries[0].Command == "Command2" &&
-                entries[0].Term == node.Term
-                &&
-                entries[1].Command == "Command3" &&
-                entries[1].Term == node.Term
-                &&
-                entries[2].Command == "Command4" &&
-                entries[2].Term == node.Term
-            )
-        );
+        await fauxNode.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+             data.receivedTermId == heartbeatData1.receivedTermId
+             && data.receivedLeaderId == heartbeatData1.receivedLeaderId
+             && data.prevLogIndex == heartbeatData1.prevLogIndex
+             && data.prevLogTerm == heartbeatData1.prevLogTerm
+             && data.leadersCommitIndex == heartbeatData1.leadersCommitIndex
+             && data.newEntries != null
+             && AreObjectsEquivalent(data.newEntries, heartbeatData1.newEntries)
+         ));
+
+        await fauxNode2.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData2.receivedTermId
+            && data.receivedLeaderId == heartbeatData2.receivedLeaderId
+            && data.prevLogIndex == heartbeatData2.prevLogIndex
+            && data.prevLogTerm == heartbeatData2.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData2.leadersCommitIndex
+            && data.newEntries != null
+            && AreObjectsEquivalent(data.newEntries, heartbeatData2.newEntries)
+        ));
     }
 
     // Test 6
@@ -161,24 +181,30 @@ public class LogTests
     {
         // Arrange
         var fauxNode = Substitute.For<INode>();
-        fauxNode.IsRunning = true;
         var node = new Node([fauxNode]);
         fauxNode.Id = node.Id + 1;
         Entry entry = new(1, "Command1", node.Term);
-        fauxNode.Log = [entry];
         node.Log = [entry];
 
         // Act
         node.BecomeLeader();
 
         // Assert
-        await fauxNode.Received().ReceiveHeartbeat(
-            node.Term,
-            node.Id,
-            node.Log.Count - 1,
-            node.Log[^1].Term,
-            node.CommittedIndex
-        );
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = node.Log.Count - 1,
+            prevLogTerm = node.Log[^1].Term,
+            leadersCommitIndex = node.CommittedIndex
+        };
+        await fauxNode.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
     }
 
     // Test 7
@@ -187,17 +213,22 @@ public class LogTests
     {
         // Arrange
         var fauxLeaderNode = Substitute.For<INode>();
-        fauxLeaderNode.State = NodeState.Leader;
         var node = new Node([fauxLeaderNode]);
-        fauxLeaderNode.Term = 1;
+        int leaderTerm = node.Term;
         fauxLeaderNode.Id = node.Id + 1;
         Entry entry = new(1, "Command1", node.Term);
-        fauxLeaderNode.Log = [ entry ];
-        fauxLeaderNode.CommittedIndex = 0;
-        node.Log = [ entry ];
+        node.Log = [entry];
 
         // Act
-        await node.ReceiveHeartbeat(fauxLeaderNode.Term, fauxLeaderNode.Id, fauxLeaderNode.CommittedIndex, fauxLeaderNode.Log.Count - 1, fauxLeaderNode.Log[^1].Term);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = leaderTerm,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = leaderTerm,
+            leadersCommitIndex = 0
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
         node.StateMachine.Should().Contain(1, "Command1");
@@ -205,16 +236,20 @@ public class LogTests
 
     // Test 8
     [Fact]
-    public async Task Leader_Commits_Log_After_Receiving_Majority_Response()
+    public void Leader_Commits_Log_After_Receiving_Majority_Response()
     {
         //Arrange
-        var node = new Node();
+        var fauxNode = Substitute.For<INode>();
+        var fauxNode2 = Substitute.For<INode>();
+        var node = new Node([fauxNode, fauxNode2]);
+        fauxNode.Id = node.Id + 1;
+        fauxNode2.Id = node.Id + 2;
         Entry entry = new(1, "Command1", node.Term);
         node.Log = [entry];
+        node.CommittedResponseCount = 2;
 
         // Act
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, true);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, true);
+        node.CheckCommits();
 
         // Assert
         node.StateMachine.Should().Contain(1, "Command1");
@@ -222,16 +257,20 @@ public class LogTests
 
     // Test 9
     [Fact]
-    public async Task Leader_Commits_Log_By_Incrementing_CommittedLogIndex()
+    public void Leader_Commits_Log_By_Incrementing_CommittedLogIndex()
     {
         //Arrange
-        var node = new Node();
+        var fauxNode = Substitute.For<INode>();
+        var fauxNode2 = Substitute.For<INode>();
+        var node = new Node([fauxNode, fauxNode2]);
+        fauxNode.Id = node.Id + 1;
+        fauxNode2.Id = node.Id + 2;
         Entry entry = new(1, "Command1", node.Term);
         node.Log = [entry];
+        node.CommittedResponseCount = 2;
 
         // Act
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, true);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, true);
+        node.CheckCommits();
 
         // Assert
         node.CommittedIndex.Should().Be(0);
@@ -243,17 +282,22 @@ public class LogTests
     {
         // Arrange
         var fauxLeaderNode = Substitute.For<INode>();
-        fauxLeaderNode.State = NodeState.Leader;
         var node = new Node([fauxLeaderNode]);
-        fauxLeaderNode.Term = 1;
+        int leaderTerm = 1;
         fauxLeaderNode.Id = node.Id + 1;
         Entry entry = new(1, "Command1", node.Term);
         node.Log = [entry];
-        fauxLeaderNode.Log = [entry];
-        fauxLeaderNode.CommittedIndex = 0;
 
         // Act
-        await node.ReceiveHeartbeat(fauxLeaderNode.Term, fauxLeaderNode.Id, fauxLeaderNode.CommittedIndex, fauxLeaderNode.Log.Count - 1, fauxLeaderNode.Log[^1].Term);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = leaderTerm,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = leaderTerm,
+            leadersCommitIndex = null
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
         node.Log.Should().Contain(entry);
@@ -264,26 +308,38 @@ public class LogTests
     public async Task Followers_Response_To_AppendEntriesRPC_Includes_Term_And_LogEntryIndex()
     {
         // Arrange
-        var fauxLeader = Substitute.For<INode>();
-        fauxLeader.State = NodeState.Leader;
-        fauxLeader.Term = 1;
-        fauxLeader.CommittedIndex = 0;
-        var node = new Node([fauxLeader]);
-        fauxLeader.Id = node.Id + 1;
+        var fauxLeaderNode = Substitute.For<INode>();
+        var node = new Node([fauxLeaderNode]);
+        int leaderTerm = node.Term;
+        fauxLeaderNode.Id = node.Id + 1;
         Entry entry = new(1, "Command1", node.Term);
-        fauxLeader.Log = [entry];
         node.Log = [entry];
 
         // Act
-        await node.ReceiveHeartbeat(fauxLeader.Term, fauxLeader.Id, fauxLeader.CommittedIndex, fauxLeader.Log.Count - 1, fauxLeader.Log[^1].Term);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = leaderTerm,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = leaderTerm,
+            leadersCommitIndex = null
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        await fauxLeader.Received(1).RespondHeartbeat(
-            node.Id,
-            node.Term,
-            node.Log.Count - 1, //IDK IF THIS IS RIGHT
-            true
-        );
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1, //IDK IF THIS IS RIGHT
+            acceptedRPC = true,
+        };
+        await fauxLeaderNode.Received(1).RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
 
@@ -309,20 +365,25 @@ public class LogTests
     {
         //Arrange
         var fauxLeaderNode = Substitute.For<INode>();
-        fauxLeaderNode.State = NodeState.Leader;
-        fauxLeaderNode.CommittedIndex = 0;
-        fauxLeaderNode.Term = 1;
+        int leaderTerm = 1;
         var node = new Node([fauxLeaderNode]);
         fauxLeaderNode.Id = node.Id + 1;
-        Entry entry = new(1, "Command1", fauxLeaderNode.Term);
-        fauxLeaderNode.Log = [entry];
+        Entry entry = new(1, "Command1", leaderTerm);
         node.Log = [entry];
 
         // Act
-        await node.ReceiveHeartbeat(fauxLeaderNode.Term, fauxLeaderNode.Id, fauxLeaderNode.Log.Count - 1, fauxLeaderNode.Log[^1].Term, fauxLeaderNode.CommittedIndex);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = leaderTerm,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = leaderTerm,
+            leadersCommitIndex = 0
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        node.CommittedIndex.Should().Be(fauxLeaderNode.CommittedIndex);
+        node.CommittedIndex.Should().Be(0);
     }
 
     // Test 15a
@@ -332,17 +393,31 @@ public class LogTests
         //Arrange
         var fauxNode = Substitute.For<INode>();
         var node = new Node([fauxNode]);
-        fauxNode.Id= node.Id + 1;
-        fauxNode.IsRunning = true;
+        fauxNode.Id = node.Id + 1;
         Entry entry = new(1, "Command1", node.Term);
         node.Log = [entry];
-        fauxNode.Log = [entry];
 
         // Act
         node.BecomeLeader();
 
         // Assert
-        await fauxNode.Received().ReceiveHeartbeat(node.Term, node.Id, node.Log.Count - 1, node.Log[^1].Term, node.CommittedIndex);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = node.Log.Count - 1,
+            prevLogTerm = node.Log[^1].Term,
+            leadersCommitIndex = node.CommittedIndex
+        };
+
+        await fauxNode.Received(1).ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+             data.receivedTermId == heartbeatData.receivedTermId
+             && data.receivedLeaderId == heartbeatData.receivedLeaderId
+             && data.prevLogIndex == heartbeatData.prevLogIndex
+             && data.prevLogTerm == heartbeatData.prevLogTerm
+             && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+         ));
+
     }
 
     // Test 15b1
@@ -357,10 +432,30 @@ public class LogTests
         fauxNode.Id = node.Id + 1;
 
         // Act
-        await node.ReceiveHeartbeat(1, fauxNode.Id, 2, 1, 1);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = 1,
+            receivedLeaderId = fauxNode.Id,
+            prevLogIndex = 2,
+            prevLogTerm = 1,
+            leadersCommitIndex = 1
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = false,
+        };
+        await fauxNode.Received().RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
     // Test 15b2
@@ -370,15 +465,36 @@ public class LogTests
         //Arrange
         Entry leaderEntry = new(1, "Command1", 1);
         var fauxNode = Substitute.For<INode>();
+        fauxNode.Id = 2;
         var node = new Node([fauxNode]);
+        node.Id = 1;
         node.Log = [leaderEntry];
-        fauxNode.Id = node.Id + 1;
 
         // Act
-        await node.ReceiveHeartbeat(1, fauxNode.Id, 0, 2, 1);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = 1,
+            receivedLeaderId = fauxNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = 2,
+            leadersCommitIndex = 1
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = false,
+        };
+        await fauxNode.Received().RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
     // Test 15d
@@ -389,19 +505,24 @@ public class LogTests
         var fauxNode = Substitute.For<INode>();
         var node = new Node([fauxNode]);
         fauxNode.Id = node.Id + 1;
-        fauxNode.Term = node.Term;
-        fauxNode.IsRunning = true;
+        int fauxNodeTerm = node.Term;
         Entry leaderEntry = new(1, "Command1", node.Term);
         Entry leaderEntry2 = new(2, "Command2", node.Term);
         Entry leaderEntry3 = new(3, "Command3", node.Term);
         Entry followerEntry = new(4, "Command1", node.Term);
         node.Log = [leaderEntry, leaderEntry2, leaderEntry3];
-        fauxNode.Log = [followerEntry];
         node.OtherNextIndexes.Add(fauxNode.Id, node.Log.Count);
         int originalIndex = node.OtherNextIndexes[fauxNode.Id];
 
         // Act - This may seem weird but this is simulating fauxNodes response to node
-        await node.RespondHeartbeat(fauxNode.Id, fauxNode.Term, fauxNode.Log.Count - 1, false);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = fauxNode.Id,
+            term = fauxNodeTerm,
+            logIndex = 0,
+            acceptedRPC = false,
+        };
+        await node.RespondHeartbeat(responseData);
 
         // Assert
         node.OtherNextIndexes[fauxNode.Id].Should().BeLessThan(originalIndex);
@@ -415,7 +536,7 @@ public class LogTests
         var fauxNode = Substitute.For<INode>();
         var node = new Node([fauxNode]);
         fauxNode.Id = node.Id + 1;
-        fauxNode.Term = node.Term;
+        int fauxNodeTerm = node.Term;
         Entry followerEntry1 = new(2, "Command1", node.Term);
         Entry followerEntry2 = new(3, "Command2", node.Term); //This one should be gone
         Entry followerEntry3 = new(4, "Command3", node.Term); //This one should be gone
@@ -423,7 +544,15 @@ public class LogTests
         node.OtherNextIndexes.Add(fauxNode.Id, node.Log.Count);
 
         // Act
-        await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, 0, fauxNode.Term, 0);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = fauxNodeTerm,
+            receivedLeaderId = fauxNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = fauxNodeTerm,
+            leadersCommitIndex = 0
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
         node.Log.Count.Should().Be(1);
@@ -457,10 +586,24 @@ public class LogTests
         node.Log = [entry];
 
         // Act
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, true);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, false);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, false);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, false);
+        var responseDataTrue = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = true,
+        };
+        var responseDataFalse = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = false,
+        };
+        await node.RespondHeartbeat(responseDataTrue);
+        await node.RespondHeartbeat(responseDataFalse);
+        await node.RespondHeartbeat(responseDataFalse);
+        await node.RespondHeartbeat(responseDataFalse);
 
         // Assert
         node.Log.Should().Contain(entry);
@@ -480,19 +623,54 @@ public class LogTests
         Entry entry = new(1, "Command1", node.Term);
         List<Entry> dummy = [entry];
         fauxNode.Id = node.Id + 1;
-        fauxNode.CommittedIndex = 0;
-        fauxNode.Log = dummy;
-        fauxNode.Term = node.Term;
+        int fauxNodeTerm = node.Term;
         node.Log = [];
 
         //Act
-        await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, dummy);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = fauxNodeTerm,
+            receivedLeaderId = fauxNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = fauxNodeTerm,
+            leadersCommitIndex = 0,
+            newEntries = dummy
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        await fauxNode.Received(0).RespondHeartbeat(node.Id, node.Term, null, true);
+        var responseData1 = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = null,
+            acceptedRPC = true,
+        };
+        var responseData2 = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = 0,
+            acceptedRPC = true,
+            addedToLog = true,
+        };
+
+        await fauxNode.Received(0).RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData1.id
+            && data.term == responseData1.term
+            && data.logIndex == responseData1.logIndex
+            && data.acceptedRPC == responseData1.acceptedRPC
+        ));
+
         node.IsRunning = true;
-        await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, dummy);
-        await fauxNode.Received(1).RespondHeartbeat(node.Id, node.Term, 0, true, true);
+        await node.ReceiveHeartbeat(heartbeatData);
+
+        await fauxNode.Received(1).RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData2.id
+            && data.term == responseData2.term
+            && data.logIndex == responseData2.logIndex
+            && data.acceptedRPC == responseData2.acceptedRPC
+        ));
     }
 
     // Test 18
@@ -506,10 +684,26 @@ public class LogTests
         node.Log = [entry];
 
         // Act
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, true);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, false);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, false);
-        await node.RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, true, false);
+        var responseDataTT = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = true,
+            addedToLog = true
+        };
+        var responseDataTF = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = true,
+            addedToLog = false
+        };
+        await node.RespondHeartbeat(responseDataTT);
+        await node.RespondHeartbeat(responseDataTF);
+        await node.RespondHeartbeat(responseDataTF);
+        await node.RespondHeartbeat(responseDataTF);
 
         // Assert
         node.Log.Should().Contain(entry);
@@ -523,46 +717,66 @@ public class LogTests
         //Arrange
         Entry leaderEntry = new(1, "Command1", 1);
         var fauxNode = Substitute.For<INode>();
-        fauxNode.Term = 10;
+        int fauxNodeTerm = 10;
         var node = new Node([fauxNode]);
         node.Log = [leaderEntry];
         fauxNode.Id = node.Id + 1;
 
         // Act
-        await node.ReceiveHeartbeat(1, fauxNode.Id, 0, fauxNode.Term, 1);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = 1,
+            receivedLeaderId = fauxNode.Id,
+            prevLogIndex = 0,
+            prevLogTerm = fauxNodeTerm,
+            leadersCommitIndex = 1
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = false,
+        };
+        await fauxNode.Received().RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
-    //// Test 20
-    //[Fact]
-    //public async Task If_Follower_Receives_RPC_With_Term_And_Index_That_DoNot_Match_It_Retries_Until_It_Find_Ones()
-    //{
-    //    // Arrange
-    //    var fauxNode = Substitute.For<INode>();
-    //    var node = new Node([fauxNode]);
-    //    fauxNode.Id = node.Id + 1;
-    //    node.OtherNextIndexes.Add(fauxNode.Id, node.Log.Count);
+    //    //// Test 20
+    //    //[Fact]
+    //    //public async Task If_Follower_Receives_RPC_With_Term_And_Index_That_DoNot_Match_It_Retries_Until_It_Find_Ones()
+    //    //{
+    //    //    // Arrange
+    //    //    var fauxNode = Substitute.For<INode>();
+    //    //    var node = new Node([fauxNode]);
+    //    //    fauxNode.Id = node.Id + 1;
+    //    //    node.OtherNextIndexes.Add(fauxNode.Id, node.Log.Count);
 
-    //    node.Log = [
-    //            new Entry(1, "Command1", node.Term)
-    //        ];
+    //    //    node.Log = [
+    //    //            new Entry(1, "Command1", node.Term)
+    //    //        ];
 
-    //    fauxNode.Log = [
-    //            new Entry(1,"Command1", node.Term),
-    //            new Entry(2, "Command2", node.Term), 
-    //            new Entry(3, "Command3", node.Term), 
-    //            new Entry(4, "Command4", node.Term)  
-    //        ];
+    //    //    fauxNode.Log = [
+    //    //            new Entry(1,"Command1", node.Term),
+    //    //            new Entry(2, "Command2", node.Term), 
+    //    //            new Entry(3, "Command3", node.Term), 
+    //    //            new Entry(4, "Command4", node.Term)  
+    //    //        ];
 
-    //    // Act
-    //    await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, fauxNode.Log.TakeLast(1).ToList());
-    //    await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
-    //    await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, fauxNode.Log.TakeLast(2).ToList());
-    //    await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
-    //    await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, fauxNode.Log.TakeLast(3).ToList());
-    //    await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
+    //    //    // Act
+    //    //    await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, fauxNode.Log.TakeLast(1).ToList());
+    //    //    await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
+    //    //    await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, fauxNode.Log.TakeLast(2).ToList());
+    //    //    await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
+    //    //    await node.ReceiveHeartbeat(fauxNode.Term, fauxNode.Id, fauxNode.Log.Count - 1, fauxNode.Log[^1].Term, fauxNode.CommittedIndex, fauxNode.Log.TakeLast(3).ToList());
+    //    //    await fauxNode.Received().RespondHeartbeat(node.Id, node.Term, node.Log.Count - 1, false);
 
-    //}
+    //    //}
 }

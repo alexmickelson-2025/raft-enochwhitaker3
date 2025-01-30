@@ -1,6 +1,6 @@
 ﻿namespace RaftLibrary;
 
-public class Entry(int key, string command, int term)
+public record Entry(int key, string command, int term)
 {
     public int Key { get; set; } = key;
     public string Command { get; set; } = command;

@@ -1,5 +1,6 @@
 ﻿using System.Timers;
 using System.Xml.Linq;
+using static RaftLibrary.DTOs;
 
 namespace RaftLibrary;
 
@@ -62,59 +63,109 @@ public class Node
             if (differenceInLogs > 0) //if difference in log is greater than 0, then there is a log to be sent 
             {
                 List<Entry> newEntryList = Log.TakeLast(differenceInLogs).ToList();
-                await _node.ReceiveHeartbeat(Term, Id, Log.Count - 1, Log[^1].Term, CommittedIndex, newEntryList);
+                var heartbeatData = new ReceiveHeartbeatDTO
+                {
+                    receivedTermId = Term,
+                    receivedLeaderId = Id,
+                    prevLogIndex = Log.Count > 0 ? Log.Count - 1 : null,
+                    prevLogTerm = Log.Count > 0 ? Log[^1].Term : null,
+                    leadersCommitIndex = CommittedIndex,
+                    newEntries = newEntryList
+                };
+                await _node.ReceiveHeartbeat(heartbeatData);
             }
             else if (differenceInLogs == 0)
             {
-                if (Log.Count == 0) //handling if there hasn't been a single log yet 
-                    await _node.ReceiveHeartbeat(Term, Id, null, null, null);
-                else await _node.ReceiveHeartbeat(Term, Id, Log.Count - 1, Log[^1].Term, CommittedIndex);
+                var heartbeatData = new ReceiveHeartbeatDTO
+                {
+                    receivedTermId = Term,
+                    receivedLeaderId = Id,
+                    prevLogIndex = Log.Count > 0 ? Log.Count - 1 : null,
+                    prevLogTerm = Log.Count > 0 ? Log[^1].Term : null,
+                    leadersCommitIndex = CommittedIndex,
+                    newEntries = null
+                };
+                await _node.ReceiveHeartbeat(heartbeatData);
             }
         }
         StartLeaderTimer();
     }
 
 
-    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? prevLogIndex, int? prevLogTerm, int? leadersCommitIndex, List<Entry>? newEntries = null)
+    public async Task ReceiveHeartbeat(ReceiveHeartbeatDTO Data)
     {
-        var leader = Nodes.Find(node => node.Id == receivedLeaderId);
-
-        if (receivedTermId >= Term && leader != null && IsRunning == true)
+        var leader = Nodes.Find(node => node.Id == Data.receivedLeaderId);
+        if (Data.receivedLeaderId >= Term && Data.receivedTermId >= Term && leader != null && IsRunning == true)
         {
-            if (State == NodeState.Leader && receivedTermId == Term)
+            if(Data.receivedLeaderId > Term && State == NodeState.Candidate)
+            {
+                BecomeFollower(Data.receivedLeaderId, Data.receivedTermId);
+                await Task.CompletedTask;
+            }
+
+            if (State == NodeState.Leader && Data.receivedTermId == Term)
                 await Task.CompletedTask;
 
-            bool canAccept = CheckHeartbeat(prevLogIndex, prevLogTerm);
+            bool canAccept = CheckHeartbeat(Data.prevLogIndex, Data.prevLogTerm);
 
             if(canAccept == true) 
             {
-                if (newEntries != null)
+                if (Data.newEntries != null)
                 {
-                    foreach (var log in newEntries)
+                    foreach (var log in Data.newEntries)
                     {
                         Log.Add(log);
                     }
-                    BecomeFollower(receivedLeaderId);
-                    await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, true, true);
+                    BecomeFollower(Data.receivedLeaderId, Data.receivedTermId);
+                    var responseData = new RespondHeartbeatDTO
+                    {
+                        id = Id,
+                        term = Term,
+                        logIndex = Log.Count == 0 ? null : Log.Count - 1,
+                        acceptedRPC = true,
+                        addedToLog = true
+                    };
+                    await leader.RespondHeartbeat(responseData);
                 }
-                else if (leadersCommitIndex > CommittedIndex || CommittedIndex == null && leadersCommitIndex != null)
+                else if (Data.leadersCommitIndex > CommittedIndex || CommittedIndex == null && Data.leadersCommitIndex != null)
                 {
-                    int bars = (int)leadersCommitIndex;
+                    int bars = (int)Data.leadersCommitIndex;
                     Entry kms = Log[bars];
                     CommitToStateMachine(kms);
-                    BecomeFollower(receivedLeaderId);
-                    await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, true);
+                    var responseData = new RespondHeartbeatDTO
+                    {
+                        id = Id,
+                        term = Term,
+                        logIndex = Log.Count == 0 ? null : Log.Count - 1,
+                        acceptedRPC = true
+                    };
+                    BecomeFollower(Data.receivedLeaderId, Data.receivedTermId);
+                    await leader.RespondHeartbeat(responseData);
                 }
                 else
                 {
-                    BecomeFollower(receivedLeaderId);
-                    await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, true);
+                    var responseData = new RespondHeartbeatDTO
+                    {
+                        id = Id,
+                        term = Term,
+                        logIndex = Log.Count == 0 ? null : Log.Count - 1,
+                        acceptedRPC = true
+                    };
+                    BecomeFollower(Data.receivedLeaderId, Data.receivedTermId);
+                    await leader.RespondHeartbeat(responseData);
                 }
             }
             else
             {
-                BecomeFollower(receivedLeaderId);
-                await leader.RespondHeartbeat(Id, Term, Log.Count == 0 ? null : Log.Count - 1, false);
+                var responseData = new RespondHeartbeatDTO
+                {
+                    id = Id,
+                    term = Data.receivedTermId,
+                    logIndex = Log.Count == 0 ? null : Log.Count - 1,
+                    acceptedRPC = false
+                };
+                BecomeFollower(Data.receivedLeaderId, Data.receivedTermId);
+                await leader.RespondHeartbeat(responseData);
             }
         }
     }
@@ -146,34 +197,40 @@ public class Node
         return true; //this ALSO might cause problems killin myself if it does lowkey
     }
 
-    public async Task RespondHeartbeat(int followerId, int term, int? logIndex, bool acceptedRPC, bool? addedToLog = null)
+    public async Task RespondHeartbeat(RespondHeartbeatDTO Data)
     {
-        if (addedToLog != null && addedToLog == true)
+        if (Data.addedToLog != null && Data.addedToLog == true && Data.logIndex != null)
         {
+            OtherNextIndexes[Data.id] = (int)Data.logIndex + 1;
             CommittedResponseCount += 1;
             CheckCommits();
         }
-        else if (acceptedRPC == false && logIndex < Log.Count - 1)
+        else if (Data.acceptedRPC == false && Data.logIndex < Log.Count - 1)
         {
-            OtherNextIndexes[followerId]--;
+            OtherNextIndexes[Data.id]--;
         }
         await Task.CompletedTask;
     }
 
-    public async Task RequestVotes(int candidateId)
+    public async Task RequestVotes(RequestVoteDTO Data)
     {
         foreach (INode _node in Nodes)
         {
-            await _node.ReceiveRequestVote(candidateId);
+            var requestData = new ReceiveRequestVoteDTO
+            {
+                candidateId = Id,
+                candidateTerm = Term,
+            };
+            await _node.ReceiveRequestVote(requestData);
         }
     }
 
-    public async Task ReceiveRequestVote(int candidateId)
+    public async Task ReceiveRequestVote(ReceiveRequestVoteDTO Data)
     {
-        var candidate = Nodes.Find(node => node.Id == candidateId);
-        if (candidate != null && candidate.Term >= Term && VotedTerm != candidate.Term && IsRunning == true)
+        var candidate = Nodes.Find(node => node.Id == Data.candidateId);
+        if (candidate != null && Data.candidateTerm >= Term && VotedTerm != Data.candidateTerm && IsRunning == true)
         {
-            VotedTerm = candidate.Term;
+            VotedTerm = Data.candidateTerm;
             await candidate.SendVote();
         }
     }
@@ -218,14 +275,14 @@ public class Node
 
     }
 
-    public async void BecomeFollower(int leaderId)
+    public async void BecomeFollower(int leaderId, int leaderTerm)
     {
         var leader = Nodes.Find(node => node.Id == leaderId);
         if ( leader != null)
         {
             State = NodeState.Follower;
             LeaderId = leader.Id;
-            Term = leader.Term;
+            Term = leaderTerm;
             Votes.Clear();
             ResetTimer();
         }
@@ -239,7 +296,12 @@ public class Node
         Votes.Add(Term);
         VotedTerm = Term;
         ResetTimer();
-        await RequestVotes(Id);
+        var requestData = new RequestVoteDTO
+        {
+            Id = Id,
+            Term = Term,
+        };
+        await RequestVotes(requestData);
     }
 
     public async void BecomeLeader()
@@ -250,7 +312,11 @@ public class Node
         {
             if (!OtherNextIndexes.ContainsKey(_node.Id))
             {
-                OtherNextIndexes.TryAdd(_node.Id, Log.Count); //it is log.count for seperation
+                OtherNextIndexes.TryAdd(_node.Id, Log.Count); //it is log.count for next node index
+            }
+            else
+            {
+                OtherNextIndexes[_node.Id] = Log.Count;
             }
         }
         await SendHeartbeat();

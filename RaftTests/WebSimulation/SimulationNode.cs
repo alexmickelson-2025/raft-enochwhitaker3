@@ -1,4 +1,6 @@
 ﻿using RaftLibrary;
+using static RaftLibrary.DTOs;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace WebSimulation;
 
@@ -13,33 +15,37 @@ public class SimulationNode : INode
     }
 
     public int Id { get => InnerNode.Id; set => InnerNode.Id = value; }
-    public int LeaderID { get => InnerNode.LeaderId; set => InnerNode.LeaderId = value; }
-    public int Term { get => InnerNode.Term; set => InnerNode.Term = value; }
-    public NodeState State { get => InnerNode.State; set => InnerNode.State = value; }
-    public System.Timers.Timer Timer { get => InnerNode.Timer; set => InnerNode.Timer = value; }
-    public List<int> Votes { get => InnerNode.Votes; set => InnerNode.Votes = value; }
-    public bool SimulationRunning { get; private set; } = false;
-    public int AppendedEntry { get => InnerNode.AppendedEntry; set => InnerNode.AppendedEntry = value; }
-    public int CommittedIndex { get => (int)InnerNode.CommittedIndex; set => InnerNode.CommittedIndex = value; }
-    public int NextIndex { get => InnerNode.NextIndex; set => InnerNode.NextIndex = value; }
-    public List<Entry> Log { get => InnerNode.Log; set => InnerNode.Log = value; }
-    public Dictionary<int, string> StateMachine { get => InnerNode.StateMachine; set => InnerNode.StateMachine = value; }
-    int? INode.CommittedIndex { get => InnerNode.CommittedIndex; set => InnerNode.CommittedIndex = value; }
-    public bool IsRunning { get => InnerNode.IsRunning; set => InnerNode.IsRunning = value; }
 
-    public async Task ReceiveHeartbeat(int receivedTermId, int receivedLeaderId, int? prevLogIndex, int? prevLogTerm, int? committedIndex, List<Entry>? newEntry = null)
+    public async Task ReceiveHeartbeat(ReceiveHeartbeatDTO Data)
     {
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = Data.receivedTermId,
+            receivedLeaderId = Data.receivedLeaderId,
+            prevLogIndex = Data.prevLogIndex,
+            prevLogTerm = Data.prevLogTerm,
+            leadersCommitIndex = Data.leadersCommitIndex,
+            newEntries = Data.newEntries
+        };
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
-            await InnerNode.ReceiveHeartbeat(receivedTermId, receivedLeaderId, committedIndex, prevLogIndex, prevLogTerm);
+            await InnerNode.ReceiveHeartbeat(heartbeatData);
         });
     }
 
-    public async Task RespondHeartbeat(int id, int term, int? logIndex, bool result, bool? addedToLog = null)
+    public async Task RespondHeartbeat(RespondHeartbeatDTO Data)
     {
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = Data.id,
+            term = Data.term,
+            logIndex = Data.logIndex,
+            acceptedRPC = Data.acceptedRPC,
+            addedToLog = Data.addedToLog,
+        };
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
-            await InnerNode.RespondHeartbeat(Id, Term, Log.Count - 1, true);
+            await InnerNode.RespondHeartbeat(responseData);
         });
     }
 
@@ -49,32 +55,18 @@ public class SimulationNode : INode
         {
             await InnerNode.SendVote();
         });
-
     }
 
-    public async Task ReceiveRequestVote(int candidateId)
+    public async Task ReceiveRequestVote(ReceiveRequestVoteDTO Data)
     {
+        var responseData = new ReceiveRequestVoteDTO
+        {
+            candidateId = Data.candidateId,
+            candidateTerm = Data.candidateTerm,
+        };
         await Task.Delay(NetworkDelay).ContinueWith(async (_previousTask) =>
         {
-            await InnerNode.ReceiveRequestVote(candidateId);
+            await InnerNode.ReceiveRequestVote(responseData);
         });
-    }
-
-    public void EditLog(int removeAmount)
-    {
-        Task.Delay(NetworkDelay).ContinueWith((_previousTask) =>
-        {
-            InnerNode.EditLog(removeAmount);
-        });
-    }
-
-    public Task AppendEntriesRequest(string requestedEntry, int leaderId)
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task AppendEntriesCommitted()
-    {
-        throw new NotImplementedException();
     }
 }

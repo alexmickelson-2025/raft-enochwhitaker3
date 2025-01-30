@@ -2,6 +2,7 @@ using Castle.Core.Logging;
 using FluentAssertions;
 using NSubstitute;
 using RaftLibrary;
+using static RaftLibrary.DTOs;
 
 namespace RaftTests;
 public class LeaderElectionTests
@@ -26,14 +27,20 @@ public class LeaderElectionTests
     {
         // Arrange
         var leader = Substitute.For<INode>();
-        leader.State = NodeState.Leader;
-        leader.Id = 1234;
         Node node = new Node([leader]);
-        leader.Term = node.Term;
+        leader.Id = node.Id + 1;
         var startTime = node.Timer.Interval;
 
         // Act
-        await node.ReceiveHeartbeat(node.Term, leader.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = leader.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
         node.Timer.Interval.Should().NotBe(startTime);
@@ -109,9 +116,7 @@ public class LeaderElectionTests
     {
         // Arrange
         var follower1 = Substitute.For<INode>();
-        follower1.IsRunning = true;
         var leader = new Node([follower1]);
-        follower1.Log = [];
 
         // Act
         await leader.SendVote();
@@ -120,7 +125,21 @@ public class LeaderElectionTests
         await Task.Delay(200);
 
         // Assert
-        await follower1.Received(5).ReceiveHeartbeat(leader.Term, leader.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = leader.Term,
+            receivedLeaderId = leader.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await follower1.Received(5).ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
     }
 
     //Test #18
@@ -128,17 +147,35 @@ public class LeaderElectionTests
     public async Task Candidate_Rejects_RPC_If_Term_Is_Older()
     {
         // Arrange
-        var leader = Substitute.For<INode>();
-        leader.State = NodeState.Leader;
-        var follower = new Node([leader]);
-        leader.Term = follower.Term;
-        leader.Id = 1234;
+        var fauxLeaderNode = Substitute.For<INode>();
+        var node = new Node([fauxLeaderNode]);
+        fauxLeaderNode.Id = node.Id + 1;
 
         // Act
-        await follower.ReceiveHeartbeat(follower.Term - 1, leader.Id, leader.CommittedIndex,0,0);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term - 1,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        await leader.Received(0).RespondHeartbeat(follower.Id, follower.Term, follower.Log.Count - 1, true);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = node.Log.Count - 1,
+            acceptedRPC = true,
+        };;
+        await fauxLeaderNode.Received(0).RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
     //Test #17
@@ -146,17 +183,35 @@ public class LeaderElectionTests
     public async Task Candidate_Responds_To_RPC()
     {
         // Arrange
-        var leader = Substitute.For<INode>();
-        leader.State = NodeState.Leader;
-        var follower = new Node([leader]);
-        leader.Term = follower.Term;
-        leader.Id = 1234;
+        var fauxLeaderNode = Substitute.For<INode>();
+        var node = new Node([fauxLeaderNode]);
+        fauxLeaderNode.Id = 1234;
 
         // Act
-        await follower.ReceiveHeartbeat(leader.Term, leader.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
-        await leader.Received(1).RespondHeartbeat(follower.Id, follower.Term, null, true);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = node.Id,
+            term = node.Term,
+            logIndex = null,
+            acceptedRPC = true,
+        }; 
+        await fauxLeaderNode.Received(1).RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
     //Test #16
@@ -185,11 +240,15 @@ public class LeaderElectionTests
         //Arrange
         var fauxCandidate = Substitute.For<INode>();
         var followerNode = new Node([fauxCandidate]);
-        fauxCandidate.Term = followerNode.Term + 1;
         fauxCandidate.Id = followerNode.Id + 1;
 
         //Act
-        await followerNode.ReceiveRequestVote(fauxCandidate.Id);
+        var requestData = new ReceiveRequestVoteDTO
+        {
+            candidateId = fauxCandidate.Id,
+            candidateTerm = followerNode.Term + 1,
+        };
+        await followerNode.ReceiveRequestVote(requestData);
 
         //Assert
         await fauxCandidate.Received(1).SendVote();
@@ -219,13 +278,19 @@ public class LeaderElectionTests
     {
         // Arrange
         var fauxLeader = Substitute.For<INode>();
-        fauxLeader.State = NodeState.Leader;
         var node = new Node([fauxLeader]);
         fauxLeader.Id = node.Id + 1;
-        fauxLeader.Term = node.Term;
 
         // Act
-        await node.ReceiveHeartbeat(fauxLeader.Term, fauxLeader.Id,null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = fauxLeader.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await node.ReceiveHeartbeat(heartbeatData);
 
         // Assert
         node.LeaderId.Should().Be(fauxLeader.Id);
@@ -237,12 +302,8 @@ public class LeaderElectionTests
     {
         // Arrange
         var fauxNode1 = Substitute.For<INode>();
-        fauxNode1.IsRunning = true;
         var fauxNode2 = Substitute.For<INode>();
-        fauxNode2.IsRunning = true;
         var node = new Node([fauxNode1, fauxNode2]) { State = NodeState.Follower };
-        fauxNode1.Log = [];
-        fauxNode2.Log = [];
 
         // Act
         node.BecomeCandidate();
@@ -250,8 +311,30 @@ public class LeaderElectionTests
         node.CheckElection();
 
         // Assert
-        await fauxNode1.Received().ReceiveHeartbeat(node.Term, node.Id, null, null, null);
-        await fauxNode2.Received().ReceiveHeartbeat(node.Term, node.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+
+        await fauxNode1.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
+        await fauxNode2.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
+
         node.State.Should().Be(NodeState.Leader);
     }
 
@@ -261,9 +344,7 @@ public class LeaderElectionTests
     {
         // Arrange
         var fauxNode1 = Substitute.For<INode>();
-        fauxNode1.IsRunning = true;
         var fauxNode2 = Substitute.For<INode>();
-        fauxNode2.IsRunning = true;
         var node = new Node([fauxNode1, fauxNode2]) { State = NodeState.Follower };
 
         // Act
@@ -272,8 +353,30 @@ public class LeaderElectionTests
         node.CheckElection();
 
         // Assert
-        await fauxNode1.Received().ReceiveHeartbeat(node.Term, node.Id, null, null, null);
-        await fauxNode2.Received().ReceiveHeartbeat(node.Term, node.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+
+        await fauxNode1.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
+        await fauxNode2.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
+
         node.State.Should().Be(NodeState.Leader);
     }
 
@@ -284,20 +387,38 @@ public class LeaderElectionTests
         // Arrange
         var fauxNode = Substitute.For<INode>();
         var fauxLeaderNode = Substitute.For<INode>();
-        fauxLeaderNode.State = NodeState.Leader;
         var candidateNode = new Node([fauxNode, fauxLeaderNode]) { State = NodeState.Follower };
-        fauxLeaderNode.Term = candidateNode.Term + 2;
         fauxLeaderNode.Id = candidateNode.Id + 1;
 
         // Act
         candidateNode.BecomeCandidate();
-        candidateNode.Term.Should().BeLessThan(fauxLeaderNode.Term);
+        candidateNode.Term.Should().BeLessThan(candidateNode.Term + 2);
         candidateNode.State.Should().Be(NodeState.Candidate);
-        await candidateNode.ReceiveHeartbeat(fauxLeaderNode.Term, fauxLeaderNode.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = candidateNode.Term + 2,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await candidateNode.ReceiveHeartbeat(heartbeatData);
 
         // Assert
         candidateNode.State.Should().Be(NodeState.Follower);
-        await fauxLeaderNode.Received(1).RespondHeartbeat(candidateNode.Id, candidateNode.Term, null, true);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = candidateNode.Id,
+            term = candidateNode.Term,
+            logIndex = null,
+            acceptedRPC = true,
+        };
+        await fauxLeaderNode.Received(1).RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
     //Test #13
@@ -307,20 +428,39 @@ public class LeaderElectionTests
         // Arrange
         var fauxNode = Substitute.For<INode>();
         var fauxLeaderNode = Substitute.For<INode>();
-        fauxLeaderNode.State = NodeState.Leader;
         var candidateNode = new Node([fauxNode, fauxLeaderNode]) { State = NodeState.Follower };
-        fauxLeaderNode.Term = candidateNode.Term + 1;
+        int leaderTerm = candidateNode.Term + 1;
         fauxLeaderNode.Id = candidateNode.Id + 1;
 
         // Act
         candidateNode.BecomeCandidate();
-        candidateNode.Term.Should().Be(fauxLeaderNode.Term);
+        candidateNode.Term.Should().Be(leaderTerm);
         candidateNode.State.Should().Be(NodeState.Candidate);
-        await candidateNode.ReceiveHeartbeat(fauxLeaderNode.Term, fauxLeaderNode.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = leaderTerm,
+            receivedLeaderId = fauxLeaderNode.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await candidateNode.ReceiveHeartbeat(heartbeatData);
 
         // Assert
         candidateNode.State.Should().Be(NodeState.Follower);
-        await fauxLeaderNode.Received(1).RespondHeartbeat(candidateNode.Id, candidateNode.Term, null, true);
+        var responseData = new RespondHeartbeatDTO
+        {
+            id = candidateNode.Id,
+            term = candidateNode.Term,
+            logIndex = null,
+            acceptedRPC = true,
+        };
+        await fauxLeaderNode.Received(1).RespondHeartbeat(Arg.Is<RespondHeartbeatDTO>(data =>
+            data.id == responseData.id
+            && data.term == responseData.term
+            && data.logIndex == responseData.logIndex
+            && data.acceptedRPC == responseData.acceptedRPC
+        ));
     }
 
     //Test #15
@@ -329,18 +469,26 @@ public class LeaderElectionTests
     {
         // Arrange
         var fauxCandidate = Substitute.For<INode>();
-        fauxCandidate.State = NodeState.Candidate;
         var fauxCandidate2 = Substitute.For<INode>();
-        fauxCandidate2.State = NodeState.Candidate;
         var followerNode = new Node([fauxCandidate, fauxCandidate2]);
         fauxCandidate.Id = followerNode.Id + 1;
-        fauxCandidate.Term = followerNode.Term + 1;
+        int candidateTerm1 = followerNode.Term + 1;
         fauxCandidate2.Id = followerNode.Id + 2;
-        fauxCandidate2.Term = followerNode.Term + 2;
+        int candidateTerm2 = followerNode.Term + 2;
 
         // Act
-        await followerNode.ReceiveRequestVote(fauxCandidate.Id);
-        await followerNode.ReceiveRequestVote(fauxCandidate2.Id);
+        var requestData1 = new ReceiveRequestVoteDTO
+        {
+            candidateId = fauxCandidate.Id,
+            candidateTerm = candidateTerm1,
+        };
+        var requestData2 = new ReceiveRequestVoteDTO
+        {
+            candidateId = fauxCandidate2.Id,
+            candidateTerm = candidateTerm2,
+        };
+        await followerNode.ReceiveRequestVote(requestData1);
+        await followerNode.ReceiveRequestVote(requestData2);
 
         // Assert
         await fauxCandidate.Received(1).SendVote();
@@ -353,18 +501,25 @@ public class LeaderElectionTests
     {
         // Arrange
         var fauxCandidate = Substitute.For<INode>();
-        fauxCandidate.State = NodeState.Candidate;
         var fauxCandidate2 = Substitute.For<INode>();
-        fauxCandidate2.State = NodeState.Candidate;
         var followerNode = new Node([fauxCandidate, fauxCandidate2]);
+        int term = followerNode.Term + 1;
         fauxCandidate.Id = followerNode.Id + 1;
-        fauxCandidate.Term = followerNode.Term + 1;
         fauxCandidate2.Id = fauxCandidate.Id + 1;
-        fauxCandidate2.Term = fauxCandidate.Term;
 
         // Act
-        await followerNode.ReceiveRequestVote(fauxCandidate.Id);
-        await followerNode.ReceiveRequestVote(fauxCandidate2.Id);
+        var requestData1 = new ReceiveRequestVoteDTO
+        {
+            candidateId = fauxCandidate.Id,
+            candidateTerm = term,
+        };
+        var requestData2 = new ReceiveRequestVoteDTO
+        {
+            candidateId = fauxCandidate2.Id,
+            candidateTerm = term,
+        };
+        await followerNode.ReceiveRequestVote(requestData1);
+        await followerNode.ReceiveRequestVote(requestData2);
 
         // Assert
         await fauxCandidate.Received(1).SendVote();
@@ -378,10 +533,7 @@ public class LeaderElectionTests
         // Arrange
         var fauxNode = Substitute.For<INode>();
         var node = new Node([fauxNode]);
-        fauxNode.IsRunning = true;
         fauxNode.Id = node.Id + 1;
-        fauxNode.Term = node.Term + 1;
-        fauxNode.Log = [];
 
         // Act
         node.BecomeLeader();
@@ -389,10 +541,24 @@ public class LeaderElectionTests
         await Task.Delay(400);
 
         // Assert
-        await fauxNode.Received(1).ReceiveHeartbeat(node.Term, node.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await fauxNode.Received().ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
     }
 
-    //Test in class #1
+    //Test in class #2
     [Fact]
     public async Task When_Leader_Node_Is_In_Election_Loop_Then_They_Get_Paused_Other_Nodes_DoNot_Get_Heartbeat_For_400ms_Then_When_Unpaused_They_Recieve_Again()
     {
@@ -400,9 +566,6 @@ public class LeaderElectionTests
         var fauxNode = Substitute.For<INode>();
         var node = new Node([fauxNode]);
         fauxNode.Id = node.Id + 1;
-        fauxNode.IsRunning = true;
-        fauxNode.Term = node.Term + 1;
-        fauxNode.Log = [];
 
         // Act
         node.BecomeLeader();
@@ -412,9 +575,24 @@ public class LeaderElectionTests
         await Task.Delay(100);
 
         // Assert
-        await fauxNode.Received(2).ReceiveHeartbeat(node.Term, node.Id, null, null, null);
+        var heartbeatData = new ReceiveHeartbeatDTO
+        {
+            receivedTermId = node.Term,
+            receivedLeaderId = node.Id,
+            prevLogIndex = null,
+            prevLogTerm = null,
+            leadersCommitIndex = null
+        };
+        await fauxNode.Received(2).ReceiveHeartbeat(Arg.Is<ReceiveHeartbeatDTO>(data =>
+            data.receivedTermId == heartbeatData.receivedTermId
+            && data.receivedLeaderId == heartbeatData.receivedLeaderId
+            && data.prevLogIndex == heartbeatData.prevLogIndex
+            && data.prevLogTerm == heartbeatData.prevLogTerm
+            && data.leadersCommitIndex == heartbeatData.leadersCommitIndex
+        ));
     }
 
+    //Test in class #3
     [Fact]
     public async Task When_Follower_Gets_Paused_It_Does_Not_Become_A_Candidate()
     {
@@ -429,6 +607,7 @@ public class LeaderElectionTests
         node.State.Should().Be(NodeState.Follower);
     }
 
+    //Test in class #4
     [Fact]
     public async Task When_Follower_Gets_UnPaused_After_Being_Paused_It_Eventually_Becomes_Candidate()
     {

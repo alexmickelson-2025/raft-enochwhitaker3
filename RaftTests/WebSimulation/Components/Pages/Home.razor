@@ -42,13 +42,13 @@
                     </h3>
                 </div>
                 <div class="@StateClass(node)">
-                    @node.State
+                    @node.InnerNode.State
                 </div>
                 <div class="@TermClass(node)">
-                    Term @node.Term
+                    Term @node.InnerNode.Term
                 </div>
                 <div>
-                    Leader is @node.LeaderID
+                    Leader is @node.InnerNode.LeaderId
                 </div>
                 @*                 <div>
                     Home Delay @networkDelay
@@ -139,17 +139,17 @@
 
     string TermClass(SimulationNode node)
     {
-        var maxTerm = nodes.Select(n => n.Term).Max();
+        var maxTerm = nodes.Select(n => n.InnerNode.Term).Max();
         return "";
     }
 
     string StateClass(SimulationNode node)
     {
-        if (node.State == NodeState.Leader)
+        if (node.InnerNode.State == NodeState.Leader)
             return "text-danger";
-        if (node.State == NodeState.Candidate)
+        if (node.InnerNode.State == NodeState.Candidate)
             return "text-warning";
-        if (node.State == NodeState.Follower)
+        if (node.InnerNode.State == NodeState.Follower)
             return "text-success";
         return "";
     }
