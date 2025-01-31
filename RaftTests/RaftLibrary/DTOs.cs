@@ -38,4 +38,10 @@ public class DTOs
         public int candidateId { get; init; }
         public int candidateTerm { get; init; }
     };
+
+    public record ClientCommandData
+    {
+        public int requestedKey { get; init; }
+        public string requestedCommand { get; init; } = "";
+    };
 }

@@ -28,11 +28,23 @@
         </div>
     </div>
 </div>
-<button @onclick="startSimulation">Start</button>
+<div class="d-flex d-inline-flex">
+    <button @onclick="startSimulation">Start</button>
+    @if (Client.Responses.Count > 0)
+    {
+        <div class="m-2">
+            Latest Client Message: @Client.Responses[^1]
+        </div>
+    }
+
+</div>
+
 
 <div class="row">
+
     @foreach (var node in nodes)
     {
+
         var timeRemaining = node.InnerNode.TimerElapsed() / node.InnerNode.Timer.Interval;
         <div class="p-3 col-4">
             <div class="border p-3 rounded-3">
@@ -40,6 +52,18 @@
                     <h3>
                         Node @node.Id
                     </h3>
+                    @if (node.InnerNode.IsRunning == true)
+                    {
+                        <button class="btn-outline-danger bg-transparent text-black rounded-3" @onclick="() => node.InnerNode.TogglePause(true)">
+                            Pause Node
+                        </button>
+                    }
+                    @if (node.InnerNode.IsRunning == false)
+                    {
+                        <button class="btn-outline-success bg-transparent text-black rounded-3" @onclick="() => node.InnerNode.TogglePause(false)">
+                            Unpause Node
+                        </button>
+                    }
                 </div>
                 <div class="@StateClass(node)">
                     @node.InnerNode.State
@@ -49,6 +73,9 @@
                 </div>
                 <div>
                     Leader is @node.InnerNode.LeaderId
+                </div>
+                <div>
+                    Home Delay @networkDelay
                 </div>
                 @*                 <div>
                     Home Delay @networkDelay
@@ -69,19 +96,41 @@
                         <div class="progress-bar bg-dark-subtle" style="width: @(timeRemaining * 1000)%;">
                         </div>
                     </div>
+                    <div class="row border border-dark mt-4 mb-4 rounded-3">
+                        <h4>Log:</h4>
+                        @foreach (var log in node.InnerNode.Log)
+                        {
+                            <div class="d-flex flex-row mr-2">
+                                <div>
+                                    <div class="mr-4">@log.Command</div>
+                                </div>
+                                <div>
+                                    <div class="text-info">&nbsp;K @log.Key</div>
+                                </div>
+                                <div>
+                                    <div class="text-warning">&nbsp;T @log.Term</div>
+                                </div>
+                                @if (node.InnerNode.StateMachine.ContainsKey(log.Key))
+                                {
+                                    <div>
+                                        <div class="text-success">&nbsp;Committed</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
                 </div>
-                @if(node.InnerNode.IsRunning == true)
-                {
-                    <button class="btn-outline-danger mt-4" @onclick="() => node.InnerNode.TogglePause(true)">
-                        Pause Node
-                    </button>
-                }
-                @if (node.InnerNode.IsRunning == false)
-                {
-                    <button class="btn-outline-success mt-4" @onclick="() => node.InnerNode.TogglePause(false)">
-                        Unpause Node
-                    </button>
-                }
+
+                <div class="d-block mt-4">
+                    <label>
+                        Key <input class="form-control" @bind=userInputKey type="number" />
+                    </label>
+                    <label>
+                        Value <input class="form-control" @bind=userInputValue />
+                    </label>
+                    <button class="d-block mt-4 bg-transparent btn-outline-primary text-black rounded-3" @onclick="() => SendCommand(node.Id)">Send Command!</button>
+                </div>
+
             </div>
         </div>
     }
@@ -96,12 +145,16 @@
     private int networkDelay = 0;
     private Timer? timer;
     List<SimulationNode>? nodes = [];
+    int userInputKey;
+    string userInputValue = "";
+    string commandStatus = "";
+    IClient Client = new Client();
 
     void startSimulation()
     {
-        var node1 = new Node([], minInterval * scalar, maxInterval * scalar, ((maxInterval * scalar) / 3));
-        var node2 = new Node([], minInterval * scalar, maxInterval * scalar, ((maxInterval * scalar) / 3));
-        var node3 = new Node([], minInterval * scalar, maxInterval * scalar, ((maxInterval * scalar) / 3));
+        var node1 = new Node([], minInterval * scalar, maxInterval * scalar, ((maxInterval * scalar) / 3), Client);
+        var node2 = new Node([], minInterval * scalar, maxInterval * scalar, ((maxInterval * scalar) / 3), Client);
+        var node3 = new Node([], minInterval * scalar, maxInterval * scalar, ((maxInterval * scalar) / 3), Client);
 
         var simulation1 = new SimulationNode(node1, networkDelay);
         var simulation2 = new SimulationNode(node2, networkDelay);
@@ -123,6 +176,28 @@
             }
             InvokeAsync(StateHasChanged);
         }, null, 0, 50); 
+    }
+
+    async Task SendCommand(int destinationId)
+    {
+        commandStatus = "sending";
+        var dest = nodes.FirstOrDefault(n => n.Id == destinationId);
+
+
+        var command = new DTOs.ClientCommandData
+            {
+                requestedKey = userInputKey,
+                requestedCommand = userInputValue
+            };
+        // var command = new ClientCommandData(
+        // Type: ClientCommandType.Set,
+        // Key: userInputKey,
+        // Value: userInputValue,
+        // RespondToClient: async (success, leaderId) =>
+        // {
+        //     commandStatus = $"response was {success}, leader is {leaderId}";
+        // });
+        await dest.SendClientCommand(command);
     }
 
     public void Update()

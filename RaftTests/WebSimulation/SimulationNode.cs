@@ -69,4 +69,11 @@ public class SimulationNode : INode
             await InnerNode.ReceiveRequestVote(responseData);
         });
     }
+    public async Task SendClientCommand(ClientCommandData data)
+    {
+        if (!InnerNode.IsRunning)
+            return;
+        await InnerNode.ReceiveClientCommand(data);
+    }
+
 }

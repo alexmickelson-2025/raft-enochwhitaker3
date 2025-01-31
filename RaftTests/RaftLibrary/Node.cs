@@ -67,8 +67,8 @@ public class Node
                 {
                     receivedTermId = Term,
                     receivedLeaderId = Id,
-                    prevLogIndex = Log.Count > 0 ? Log.Count - 1 : null,
-                    prevLogTerm = Log.Count > 0 ? Log[^1].Term : null,
+                    prevLogIndex = OtherNextIndexes[_node.Id] != 0 ? OtherNextIndexes[_node.Id ] - 1 : null,
+                    prevLogTerm = OtherNextIndexes[_node.Id] != 0 ? Log[OtherNextIndexes[_node.Id] - 1].Term : null,
                     leadersCommitIndex = CommittedIndex,
                     newEntries = newEntryList
                 };
@@ -95,9 +95,9 @@ public class Node
     public async Task ReceiveHeartbeat(ReceiveHeartbeatDTO Data)
     {
         var leader = Nodes.Find(node => node.Id == Data.receivedLeaderId);
-        if (Data.receivedLeaderId >= Term && Data.receivedTermId >= Term && leader != null && IsRunning == true)
+        if (Data.receivedTermId >= Term && leader != null && IsRunning == true)
         {
-            if(Data.receivedLeaderId > Term && State == NodeState.Candidate)
+            if(Data.receivedTermId > Term && State == NodeState.Candidate)
             {
                 BecomeFollower(Data.receivedLeaderId, Data.receivedTermId);
                 await Task.CompletedTask;
@@ -129,15 +129,28 @@ public class Node
                 }
                 else if (Data.leadersCommitIndex > CommittedIndex || CommittedIndex == null && Data.leadersCommitIndex != null)
                 {
-                    int bars = (int)Data.leadersCommitIndex;
-                    Entry kms = Log[bars];
-                    CommitToStateMachine(kms);
+                    if(CommittedIndex != null)
+                    {
+                        int toCommit = (int)Data.leadersCommitIndex - (int)CommittedIndex;
+                        var newEntriesToCommit = Log.TakeLast(toCommit);
+                        foreach (var entry in newEntriesToCommit)
+                        {
+                            CommitToStateMachine(entry);
+                        }
+                    }
+                    else
+                    {
+                        int bars = (int)Data.leadersCommitIndex;
+                        Entry kms = Log[bars];
+                        CommitToStateMachine(kms);
+                    }
+
                     var responseData = new RespondHeartbeatDTO
                     {
                         id = Id,
                         term = Term,
                         logIndex = Log.Count == 0 ? null : Log.Count - 1,
-                        acceptedRPC = true
+                        acceptedRPC = true,
                     };
                     BecomeFollower(Data.receivedLeaderId, Data.receivedTermId);
                     await leader.RespondHeartbeat(responseData);
@@ -170,7 +183,7 @@ public class Node
         }
     }
 
-    public bool CheckHeartbeat(int? prevLogIndex, int? prevLogTerm)
+    public bool CheckHeartbeat(int? prevLogIndex, int? prevLogTerm) //2, 1
     {
         if(prevLogIndex != null && prevLogTerm != null)
         {
@@ -178,15 +191,22 @@ public class Node
             {
                 return true;
             }
-            else if (prevLogIndex >= 0 && prevLogIndex == Log.Count - 1)
+            else if (prevLogIndex >= 0 && prevLogIndex == Log.Count) //2 == 1 NOPE
             {
-                if (Log[(int)prevLogIndex].Term == prevLogTerm)
+                if (Log[(int)prevLogIndex - 1].Term == prevLogTerm)
                 {
                     return true;
                 }
                 return false;
             }
-            else if (Log.Count > prevLogIndex)
+            else if (prevLogIndex == Log.Count - 1)
+            {
+                if (Log[(int)prevLogIndex].Term == prevLogTerm)
+                {
+                    return true;
+                }
+            }
+            else if (Log.Count > prevLogIndex) // 1 > 1 false
             {
                 int n = (Log.Count - 1) - (int)prevLogIndex;
                 EditLog(n);
@@ -201,8 +221,7 @@ public class Node
     {
         if (Data.addedToLog != null && Data.addedToLog == true && Data.logIndex != null)
         {
-            OtherNextIndexes[Data.id] = (int)Data.logIndex + 1;
-            CommittedResponseCount += 1;
+            OtherNextIndexes[Data.id] = Log.Count;
             CheckCommits();
         }
         else if (Data.acceptedRPC == false && Data.logIndex < Log.Count - 1)
@@ -337,18 +356,34 @@ public class Node
         }
     }
 
-    public void CheckCommits()
+    public async Task CheckCommits()
     {
         int majorityNodes = (Nodes.Count + 1) / 2;
+        List<int> countOfLogged = [];
 
-        if (CommittedResponseCount > majorityNodes && CommittedResponseCount > 1)
+        foreach(INode _node in Nodes) 
         {
-            Entry entryToCommit = Log.Last();
-            CommitToStateMachine(entryToCommit);
+            if (OtherNextIndexes[_node.Id] > StateMachine.Count) //3 > 1 => 3-1 =2 => 2
+            {
+                int uncommittedLogs = OtherNextIndexes[_node.Id] - StateMachine.Count;
+                countOfLogged.Add(uncommittedLogs);
+            }
         }
+
+        if (countOfLogged.Count > majorityNodes)
+        {
+            int commitAmount = countOfLogged.Min();
+            var newEntriesToCommit = Log.TakeLast(commitAmount);
+            foreach (var entry in newEntriesToCommit)
+            {
+                await CommitToStateMachine(entry);
+            }
+            countOfLogged.Clear();
+        }
+
         else
         {
-            return;
+            await Task.CompletedTask;
         }
     }
 
@@ -359,10 +394,19 @@ public class Node
         return ElapsedTime;
     }
 
-    public void ReceiveClientCommand(int requestedKey, string requestedCommand)
+    public async Task ReceiveClientCommand(ClientCommandData Data)
     {
-        Entry newEntry = new(requestedKey, requestedCommand, Term);
-        Log.Add(newEntry);
+        if (State != NodeState.Leader)
+        {
+            await Client.appendResponses($"Node {Id} is not a leader");
+            await Task.CompletedTask;
+        }
+        else
+        {
+            Client.LeaderId = Id;
+            Entry newEntry = new(Data.requestedKey, Data.requestedCommand, Term);
+            Log.Add(newEntry);
+        };
     }
 
     public void EditLog(int removeAmount)
@@ -373,11 +417,11 @@ public class Node
         }
     }
 
-    public void CommitToStateMachine(Entry entry)
+    public async Task CommitToStateMachine(Entry entry)
     {
-        CommittedResponseCount = 0;
         StateMachine.Add(entry.Key, entry.Command);
-        Client.hasCommittedCommand(entry.Key);
+        if (State == NodeState.Leader)
+            await Client.hasCommittedCommand(entry.Key, entry.Command);
         if (CommittedIndex == null)
             CommittedIndex = 0;
         else CommittedIndex += 1;

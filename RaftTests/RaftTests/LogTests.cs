@@ -31,7 +31,9 @@ public class LogTests
 
         // Act
         Entry newEntry = new(1, "Command1", 0);
-        node.ReceiveClientCommand(1, "Command1");
+        var ClientCommand = new ClientCommandData { requestedKey = 1, requestedCommand = "Command1" };
+
+        await node.ReceiveClientCommand(ClientCommand);
         await node.SendHeartbeat();
 
         // Assert
@@ -58,14 +60,15 @@ public class LogTests
 
     // Test 2
     [Fact]
-    public void When_Leader_Receives_ClientCommand_It_Appends_To_Its_Log()
+    public async Task When_Leader_Receives_ClientCommand_It_Appends_To_Its_Log()
     {
         // Arrange
         var node = new Node() { State = NodeState.Leader };
         Entry expectedEntry = new(12345, "12345", node.Term);
+        var ClientCommand = new ClientCommandData { requestedKey = 12345, requestedCommand = "12345" };
 
         // Act
-        node.ReceiveClientCommand(12345, "12345");
+        await node.ReceiveClientCommand(ClientCommand);
 
         // Assert
         node.Log.Should().BeEquivalentTo([expectedEntry]);
