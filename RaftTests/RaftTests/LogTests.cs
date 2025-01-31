@@ -41,8 +41,6 @@ public class LogTests
         {
             receivedTermId = node.Term,
             receivedLeaderId = node.Id,
-            prevLogIndex = node.Log.Count - 1,
-            prevLogTerm = node.Log[^1].Term,
             leadersCommitIndex = node.CommittedIndex,
             newEntries = [newEntry]
         };
@@ -110,8 +108,9 @@ public class LogTests
         var fauxNode = Substitute.For<INode>();
         var fauxNode2 = Substitute.For<INode>();
         var node = new Node([fauxNode, fauxNode2]);
-        fauxNode.Id = node.Id + 1;
-        fauxNode2.Id = node.Id + 2;
+        fauxNode.Id = 1;
+        fauxNode2.Id = 2;
+        node.Id = 3;
 
         node.Log = [
                 new Entry(1,"Command1", node.Term), // 0 
@@ -142,7 +141,7 @@ public class LogTests
         {
             receivedTermId = node.Term,
             receivedLeaderId = node.Id,
-            prevLogIndex = node.Log.Count - 1,
+            prevLogIndex = node.OtherNextIndexes[fauxNode.Id] - 1,
             prevLogTerm = node.Log[^1].Term,
             leadersCommitIndex = node.CommittedIndex,
             newEntries = list1
@@ -151,7 +150,7 @@ public class LogTests
         {
             receivedTermId = node.Term,
             receivedLeaderId = node.Id,
-            prevLogIndex = node.Log.Count - 1,
+            prevLogIndex = node.OtherNextIndexes[fauxNode2.Id] - 1,
             prevLogTerm = node.Log[^1].Term,
             leadersCommitIndex = node.CommittedIndex,
             newEntries = list2
@@ -239,7 +238,7 @@ public class LogTests
 
     // Test 8
     [Fact]
-    public void Leader_Commits_Log_After_Receiving_Majority_Response()
+    public async Task Leader_Commits_Log_After_Receiving_Majority_Response()
     {
         //Arrange
         var fauxNode = Substitute.For<INode>();
@@ -249,10 +248,11 @@ public class LogTests
         fauxNode2.Id = node.Id + 2;
         Entry entry = new(1, "Command1", node.Term);
         node.Log = [entry];
-        node.CommittedResponseCount = 2;
+        node.OtherNextIndexes[fauxNode.Id] = 1;
+        node.OtherNextIndexes[fauxNode2.Id] = 1;
 
         // Act
-        node.CheckCommits();
+        await node.CheckCommits();
 
         // Assert
         node.StateMachine.Should().Contain(1, "Command1");
@@ -260,7 +260,7 @@ public class LogTests
 
     // Test 9
     [Fact]
-    public void Leader_Commits_Log_By_Incrementing_CommittedLogIndex()
+    public async Task Leader_Commits_Log_By_Incrementing_CommittedLogIndex()
     {
         //Arrange
         var fauxNode = Substitute.For<INode>();
@@ -270,10 +270,11 @@ public class LogTests
         fauxNode2.Id = node.Id + 2;
         Entry entry = new(1, "Command1", node.Term);
         node.Log = [entry];
-        node.CommittedResponseCount = 2;
+        node.OtherNextIndexes[fauxNode.Id] = 1;
+        node.OtherNextIndexes[fauxNode2.Id] = 1;
 
         // Act
-        node.CheckCommits();
+        await node.CheckCommits();
 
         // Assert
         node.CommittedIndex.Should().Be(0);
@@ -710,7 +711,7 @@ public class LogTests
 
         // Assert
         node.Log.Should().Contain(entry);
-        await fauxClient.Received(0).hasCommittedCommand(entry.Key);
+        await fauxClient.Received(0).hasCommittedCommand(entry.Key, entry.Command);
     }
 
     // Test 19

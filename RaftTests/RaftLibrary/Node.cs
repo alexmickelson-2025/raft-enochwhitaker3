@@ -135,14 +135,14 @@ public class Node
                         var newEntriesToCommit = Log.TakeLast(toCommit);
                         foreach (var entry in newEntriesToCommit)
                         {
-                            CommitToStateMachine(entry);
+                            await CommitToStateMachine(entry);
                         }
                     }
                     else
                     {
                         int bars = (int)Data.leadersCommitIndex;
                         Entry kms = Log[bars];
-                        CommitToStateMachine(kms);
+                        await CommitToStateMachine(kms);
                     }
 
                     var responseData = new RespondHeartbeatDTO
@@ -222,7 +222,7 @@ public class Node
         if (Data.addedToLog != null && Data.addedToLog == true && Data.logIndex != null)
         {
             OtherNextIndexes[Data.id] = Log.Count;
-            CheckCommits();
+            await CheckCommits();
         }
         else if (Data.acceptedRPC == false && Data.logIndex < Log.Count - 1)
         {
