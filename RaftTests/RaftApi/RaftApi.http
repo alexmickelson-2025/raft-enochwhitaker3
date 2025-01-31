@@ -1,0 +1,6 @@
+@RaftApi_HostAddress = http://localhost:5232
+
+GET {{RaftApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

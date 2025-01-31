@@ -294,6 +294,12 @@ public class Node
 
     }
 
+    public void StartTimer()
+    {
+        IsRunning = false;
+        Timer.Start();
+    }
+
     public async void BecomeFollower(int leaderId, int leaderTerm)
     {
         var leader = Nodes.Find(node => node.Id == leaderId);

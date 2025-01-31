@@ -76,4 +76,8 @@ public class SimulationNode : INode
         await InnerNode.ReceiveClientCommand(data);
     }
 
+    public Task RequestVotes(RequestVoteDTO Data)
+    {
+        throw new NotImplementedException();
+    }
 }

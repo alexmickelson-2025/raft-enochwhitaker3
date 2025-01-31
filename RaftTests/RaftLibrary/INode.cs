@@ -7,5 +7,6 @@ public interface INode
     Task ReceiveHeartbeat(ReceiveHeartbeatDTO Data);
     Task RespondHeartbeat(RespondHeartbeatDTO Data);
     Task SendVote();
+    Task RequestVotes(RequestVoteDTO Data);
     Task ReceiveRequestVote(ReceiveRequestVoteDTO Data);
 }
