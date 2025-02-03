@@ -77,18 +77,6 @@
                 <div>
                     Home Delay @networkDelay
                 </div>
-                @*                 <div>
-                    Home Delay @networkDelay
-                </div>
-                <div>
-                    Sim Delay?: @node.NetworkDelay
-                </div>
-                <div>
-                    Interval?: @node.InnerNode.Timer.Interval
-                </div>
-                <div>
-                    Votes: @string.Join(", ", node.InnerNode.Votes)
-                </div> *@
                 <div>
                     <div class="progress" role="progressbar" aria-label="Basic example"
                     aria-valuenow=@(Math.Abs(node.InnerNode.TimerElapsed())) aria-valuemin="0"
