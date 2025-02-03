@@ -1,0 +1,76 @@
+# Build Folders
+bin/
+obj/
+
+# VS Code
+.vscode/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.userprefs
+
+# Logs
+*.log
+
+# Auto-generated files
+*.generated.cs
+
+# Packages
+*.nupkg
+*.snupkg
+
+# Debug and Release folders
+Debug/
+Release/
+
+# Build artifacts
+*.dll
+*.exe
+*.pdb
+*.cache
+*.ilk
+*.log
+*.map
+*.so
+*.dylib
+*.lib
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+
+# Coverage results
+*.coverage*
+*.coveragexml
+*.coveragejson
+
+# Resharper
+_ReSharper*/
+*.DotSettings.user
+
+# Rider
+.idea/
+
+# Temporary files
+~$*
+*.tmp
+*.temp
+*.TMP
+*.bak
+*.swp
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+#
+.vs/
+**/.vs/
+*.vs/
+.suo
+.suo/
+./suo
+*.suo
