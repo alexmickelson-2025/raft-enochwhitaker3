@@ -36,12 +36,30 @@ var node = new Node(otherNodes)
 node.MinInterval = 1500;
 node.MaxInterval = 3000;
 
-// var timer = new Timer(_ =>
-// {
-//     node.TimerElapsed();
-// }, null, 0, 50); 
 
 app.MapGet("/health", () => "healthy");
+
+app.MapGet("/nodeData", () =>
+{
+    return new NodeData
+    {
+        Id = node.Id,
+        Timer = node.Timer,
+        IsRunning = node.IsRunning,
+        Term = node.Term,
+        LeaderId = node.LeaderId,
+        CommittedIndex = node.CommittedIndex,
+        Log = node.Log,
+        State = node.State,
+        StateMachine = node.StateMachine,
+        MinInterval = node.MinInterval,
+        MaxInterval = node.MaxInterval,
+        StartTime = node.StartTime,
+        ElapsedTime = node.ElapsedTime,
+    };
+
+});
+
 
 app.MapPost("/request/votes", async (RequestVoteDTO Data) =>
 {
@@ -66,6 +84,13 @@ app.MapPost("/receive/requestvote", async (ReceiveRequestVoteDTO Data) =>
 
     Console.WriteLine($"received vote response {Data}");
     await node.ReceiveRequestVote(Data);
+});
+
+app.MapPost("/receive/command", async (ClientCommandData Data) =>
+{
+
+    Console.WriteLine($"received vote response {Data}");
+    await node.ReceiveClientCommand(Data);
 });
 
 app.MapPost("/receive/vote", async () =>

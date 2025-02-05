@@ -177,14 +177,6 @@
                 requestedKey = userInputKey,
                 requestedCommand = userInputValue
             };
-        // var command = new ClientCommandData(
-        // Type: ClientCommandType.Set,
-        // Key: userInputKey,
-        // Value: userInputValue,
-        // RespondToClient: async (success, leaderId) =>
-        // {
-        //     commandStatus = $"response was {success}, leader is {leaderId}";
-        // });
         await dest.SendClientCommand(command);
     }
 

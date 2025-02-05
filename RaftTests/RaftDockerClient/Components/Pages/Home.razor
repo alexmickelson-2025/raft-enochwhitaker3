@@ -1,13 +1,179 @@
 ﻿@page "/"
+@rendermode InteractiveServer
+@using RaftLibrary
 
 <PageTitle>Home</PageTitle>
+@* 
+<div class="d-flex d-inline-flex">
+    <button @onclick="StartSim">Start</button>
+</div> *@
 
-<h1>Hello, world!</h1>
+<div class="row">
+    @foreach (var node in nodes)
+    {
+        var timeRemaining = TimerElapsed(node) / node.Timer.Interval;
+        <div class="p-3 col-4">
+            <div class="border p-3 rounded-3">
+                <div class="d-flex justify-content-between">
+                    <h3>
+                        Node @node.Id
+                    </h3>
+                </div>
+                <div class="@StateClass(node)">
+                    @node.State
+                </div>
+                <div class="@TermClass(node)">
+                    Term @node.Term
+                </div>
+                <div>
+                    Leader is @node.LeaderId
+                </div>
+                <div>
+                    <div class="progress" role="progressbar" aria-label="Basic example"
+                    aria-valuenow=@(Math.Abs(TimerElapsed(node))) aria-valuemin="0"
+                    aria-valuemax="@(node.Timer.Interval)">
+                        <div class="progress-bar bg-dark-subtle" style="width: @(timeRemaining * 1000)%;">
+                        </div>
+                    </div>
+                    <div class="row border border-dark mt-4 mb-4 rounded-3">
+                        <h4>Log:</h4>
+                        @foreach (var log in node.Log)
+                        {
+                            <div class="d-flex flex-row mr-2">
+                                <div>
+                                    <div class="mr-4">@log.Command</div>
+                                </div>
+                                <div>
+                                    <div class="text-info">&nbsp;K @log.Key</div>
+                                </div>
+                                <div>
+                                    <div class="text-warning">&nbsp;T @log.Term</div>
+                                </div>
+                                @if (node.StateMachine.ContainsKey(log.Key))
+                                {
+                                    <div>
+                                        <div class="text-success">&nbsp;Committed</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
 
-Welcome to your new app.
+                <div class="d-block mt-4">
+                    <label>
+                        Key <input class="form-control" @bind=userInputKey type="number" />
+                    </label>
+                    <label>
+                        Value <input class="form-control" @bind=userInputValue />
+                    </label>
+                    <button class="d-block mt-4 bg-transparent btn-outline-primary text-black rounded-3" @onclick="() => SendCommand(node.Id)">Send Command!</button>
+                </div>
 
+            </div>
+        </div>
+    }
+</div>
 
 @code {
     HttpClient http = new HttpClient();
-    string[] Urls = Environment.GetEnvironmentVariable("NODE_URLS").Split(',');
+    List<NodeData> nodes = [];
+    List<string> nodeURLS = new();
+    HttpClient Client = new();
+    int userInputKey;
+    string userInputValue = "";
+    string commandStatus = "";
+    CancellationTokenSource? cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Client = new HttpClient();
+        nodeURLS = Environment.GetEnvironmentVariable("NODE_URLS")?.Split(',').ToList() ?? new List<string>();
+
+        cts = new CancellationTokenSource();
+        _ = FetchNodeDataPeriodically(cts.Token);
+    }
+
+    async Task FetchNodeDataPeriodically(CancellationToken token)
+    {
+        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(200));
+
+        while (!token.IsCancellationRequested)
+        {
+            await FetchNodeData();
+            await timer.WaitForNextTickAsync(token);
+            StateHasChanged();
+        }
+    }
+
+    async Task FetchNodeData()
+    {
+        List<NodeData> updatedNodes = new();
+
+        foreach (var url in nodeURLS)
+        {
+            try
+            {
+                NodeData? result = await Client.GetFromJsonAsync<NodeData>($"{url}/nodeData");
+                if (result != null)
+                {
+                    result.Url = url;
+                    updatedNodes.Add(result);
+                }
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error fetching node data from {url}: {ex.Message}");
+            }
+        }
+
+        nodes = updatedNodes;
+    }
+
+    async Task SendCommand(int destinationId)
+    {
+        Console.WriteLine($"nodes:{nodes}  urls:{nodeURLS}");
+        commandStatus = "sending";
+        var destination = nodes.FirstOrDefault(n => n.Id == destinationId);
+
+        var command = new DTOs.ClientCommandData
+            {
+                requestedKey = userInputKey,
+                requestedCommand = userInputValue
+            };
+
+
+        var response = await Client.PostAsJsonAsync($"{destination.Url}/receive/command", command);
+    }
+
+    public void Dispose()
+    {
+        cts?.Cancel();
+    }
+
+    string TermClass(NodeData node)
+    {
+        var foundNode = nodes.FirstOrDefault(n => n.Id == node.Id);
+        var maxTerm = foundNode.Term;
+        return "";
+    }
+
+    string StateClass(NodeData node)
+    {
+        if (node.State == NodeState.Leader)
+            return "text-danger";
+        if (node.State == NodeState.Candidate)
+            return "text-warning";
+        if (node.State == NodeState.Follower)
+            return "text-success";
+        return "";
+    }
+
+    public double TimerElapsed(NodeData node)
+    {
+        TimeSpan timePassed = DateTime.Now - node.StartTime;
+        node.ElapsedTime = timePassed.TotalSeconds * 100;
+        return node.ElapsedTime;
+    }
 }
