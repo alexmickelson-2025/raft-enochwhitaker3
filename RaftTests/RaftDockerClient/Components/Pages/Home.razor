@@ -8,13 +8,6 @@
     <button @onclick="StartSim">Start</button>
 </div> *@
 
-@* @if (Client.Responses.Count > 0)
-{
-    <div class="m-2">
-        Latest Client Message: @Client.Responses[^1]
-    </div>
-} *@
-
 <div class="row">
     @foreach (var node in nodes)
     {
@@ -74,6 +67,20 @@
                                         <div class="text-success">&nbsp;Committed</div>
                                     </div>
                                 }
+                            </div>
+                        }
+                    </div>
+                    <div class="row border border-dark mt-4 mb-4 rounded-3">
+                        <h4>State Machine:</h4>
+                        @foreach (var log in node.StateMachine)
+                        {
+                            <div class="d-flex flex-row mr-2">
+                                <div>
+                                    <div class="mr-4 text-info">Key: @log.Key</div>
+                                </div>
+                                <div>
+                                    <div class="text-success">&nbsp;Value: @log.Value</div>
+                                </div>
                             </div>
                         }
                     </div>
@@ -152,7 +159,6 @@
 
     async Task SendCommand(int destinationId)
     {
-        Console.WriteLine($"nodes:{nodes}  urls:{nodeURLS}");
         commandStatus = "sending";
         var destination = nodes.FirstOrDefault(n => n.Id == destinationId);
 
@@ -198,7 +204,6 @@
 
     public async Task TogglePause(string url, bool result)
     {
-        Console.WriteLine($"Url:{url} Result:{result}");
         var toggleData = new DTOs.TogglePauseData
             {
                 toggle = result
