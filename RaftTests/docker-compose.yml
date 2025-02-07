@@ -3,15 +3,11 @@ services:
     build:
       context: .
       dockerfile: dev.Dockerfile
-    working_dir: /app
-    user: 1000:1000
-    volumes:
-      - ./:/app
     environment:
       - NODE_ID=1
       - OTHER_NODES=2,http://node2:8080;3,http://node3:8080
       - NODE_INTERVAL_SCALAR=50
-    command: dotnet watch --project RaftApi
+    command: dotnet run --project RaftApi
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -22,15 +18,11 @@ services:
     build:
       context: .
       dockerfile: dev.Dockerfile
-    working_dir: /app
-    user: 1000:1000
-    volumes:
-      - ./:/app
     environment:
       - NODE_ID=2
       - OTHER_NODES=1,http://node1:8080;3,http://node3:8080
       - NODE_INTERVAL_SCALAR=50
-    command: dotnet watch --project RaftApi
+    command: dotnet run --project RaftApi
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -41,32 +33,23 @@ services:
     build:
       context: .
       dockerfile: dev.Dockerfile
-    working_dir: /app
-    user: 1000:1000
-    volumes:
-      - ./:/app
     environment:
       - NODE_ID=3
       - OTHER_NODES=1,http://node1:8080;2,http://node2:8080
       - NODE_INTERVAL_SCALAR=50
-    command: dotnet watch --project RaftApi
+    command: dotnet run --project RaftApi
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 3s
-
   client:
     build:
       context: .
       dockerfile: dev.Dockerfile
-    working_dir: /app
-    user: 1000:1000
+    command: dotnet run --project RaftDockerClient
     ports:
       - 1101:8080
-    volumes:
-      - ./:/app
     environment:
       - NODE_URLS=http://node1:8080,http://node2:8080,http://node3:8080
-    command: dotnet watch --project RaftDockerClient
