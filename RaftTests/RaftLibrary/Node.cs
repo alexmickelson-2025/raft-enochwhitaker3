@@ -129,20 +129,32 @@ public class Node
                 }
                 else if (Data.leadersCommitIndex > CommittedIndex || CommittedIndex == null && Data.leadersCommitIndex != null)
                 {
-                    if(CommittedIndex != null)
-                    {
-                        int toCommit = (int)Data.leadersCommitIndex - (int)CommittedIndex;
-                        var newEntriesToCommit = Log.TakeLast(toCommit);
-                        foreach (var entry in newEntriesToCommit)
-                        {
-                            await CommitToStateMachine(entry);
-                        }
-                    }
-                    else
+                    if((int)Data.leadersCommitIndex == 0)
                     {
                         int bars = (int)Data.leadersCommitIndex;
                         Entry kms = Log[bars];
                         await CommitToStateMachine(kms);
+                    }
+                    else
+                    {
+                        if(CommittedIndex != null)
+                        {
+
+                            int toCommit = (int)Data.leadersCommitIndex - (int)CommittedIndex;
+                            var newEntriesToCommit = Log.TakeLast(toCommit);
+                            foreach (var entry in newEntriesToCommit)
+                            {
+                                await CommitToStateMachine(entry);
+                            }
+                        }
+                        else
+                        {
+                            var newEntriesToCommit = Log.TakeLast((int)Data.leadersCommitIndex);
+                            foreach (var entry in newEntriesToCommit)
+                            {
+                                await CommitToStateMachine(entry);
+                            }
+                        }
                     }
 
                     var responseData = new RespondHeartbeatDTO
@@ -376,7 +388,8 @@ public class Node
             }
         }
 
-        if (countOfLogged.Count > majorityNodes)
+
+        if (countOfLogged.Count + 1 > majorityNodes)
         {
             int commitAmount = countOfLogged.Min();
             var newEntriesToCommit = Log.TakeLast(commitAmount);
@@ -433,7 +446,7 @@ public class Node
         else CommittedIndex += 1;
     }
 
-    public void TogglePause(bool pause)
+    public async Task TogglePause(bool pause)
     {
         if (pause == true)
         {
@@ -453,5 +466,6 @@ public class Node
                 ResetTimer();
             }
         }
+        await Task.CompletedTask;
     }
 }

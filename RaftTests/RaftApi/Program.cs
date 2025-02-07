@@ -1,5 +1,6 @@
 using System.Text.Json;
 using RaftLibrary;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 using static RaftLibrary.DTOs;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -63,39 +64,45 @@ app.MapGet("/nodeData", () =>
 
 app.MapPost("/request/votes", async (RequestVoteDTO Data) =>
 {
-    Console.WriteLine($"received request votes {Data}");
+    //Console.WriteLine($"received request votes {Data}");
     await node.RequestVotes(Data);
 });
 
 app.MapPost("/receive/heartbeat", async (ReceiveHeartbeatDTO Data) =>
 {
-    Console.WriteLine($"received heartbeat {Data}");
+    //Console.WriteLine($"received heartbeat {Data}");
     await node.ReceiveHeartbeat(Data);
 });
 
 app.MapPost("/respond/heartbeat", async (RespondHeartbeatDTO Data) =>
 {
-    Console.WriteLine($"received append entries response {Data}");
+    //Console.WriteLine($"received append entries response {Data}");
     await node.RespondHeartbeat(Data);
 });
 
 app.MapPost("/receive/requestvote", async (ReceiveRequestVoteDTO Data) =>
 {
 
-    Console.WriteLine($"received vote response {Data}");
+    //Console.WriteLine($"received vote response {Data}");
     await node.ReceiveRequestVote(Data);
 });
 
 app.MapPost("/receive/command", async (ClientCommandData Data) =>
 {
 
-    Console.WriteLine($"received vote response {Data}");
+    //Console.WriteLine($"received vote response {Data}");
     await node.ReceiveClientCommand(Data);
 });
 
 app.MapPost("/receive/vote", async () =>
 {
    await node.SendVote();
+});
+
+app.MapPost("/receive/togglePause", async (TogglePauseData data) =>
+{
+    // Console.WriteLine($"received attempt to pause {data.toggle}");
+    await node.TogglePause(data.toggle);
 });
 
 app.Run();

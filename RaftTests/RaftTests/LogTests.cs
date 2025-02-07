@@ -683,7 +683,10 @@ public class LogTests
     {
         //Arrange
         var fauxClient = Substitute.For<IClient>();
-        var node = new Node(null, null, null, null, fauxClient);
+        var fauxNode = Substitute.For<INode>();
+        fauxNode.Id = 4;
+        var node = new Node([fauxNode], null, null, null, fauxClient);
+        node.OtherNextIndexes[fauxNode.Id] = 0;
         Entry entry = new(1, "Command1", node.Term);
         node.Log = [entry];
 

@@ -44,4 +44,9 @@ public class DTOs
         public int requestedKey { get; init; }
         public string requestedCommand { get; init; } = "";
     };
+
+    public record TogglePauseData
+    {
+        public bool toggle { get; init; }
+    };
 }

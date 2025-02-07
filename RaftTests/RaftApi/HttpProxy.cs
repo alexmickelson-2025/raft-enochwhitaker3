@@ -72,4 +72,16 @@ public class HttpRpcOtherNode : INode
             Console.WriteLine($"node {Url} is down");
         }
     }
+
+    public async Task TogglePause(bool data)
+    {
+        try
+        {
+            await client.PostAsJsonAsync(Url + "/receive/togglePause", data);
+        }
+        catch (HttpRequestException)
+        {
+            Console.WriteLine($"node {Url} is down");
+        }
+    }
 }

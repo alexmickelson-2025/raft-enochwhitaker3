@@ -8,6 +8,13 @@
     <button @onclick="StartSim">Start</button>
 </div> *@
 
+@* @if (Client.Responses.Count > 0)
+{
+    <div class="m-2">
+        Latest Client Message: @Client.Responses[^1]
+    </div>
+} *@
+
 <div class="row">
     @foreach (var node in nodes)
     {
@@ -18,6 +25,18 @@
                     <h3>
                         Node @node.Id
                     </h3>
+                    @if (node.IsRunning == true)
+                    {
+                        <button class="btn-outline-danger bg-transparent text-black rounded-3" @onclick="() => TogglePause(node.Url, true)">
+                            Pause Node
+                        </button>
+                    }
+                    @if (node.IsRunning == false)
+                    {
+                        <button class="btn-outline-success bg-transparent text-black rounded-3" @onclick="() => TogglePause(node.Url, false)">
+                            Unpause Node
+                        </button>
+                    }
                 </div>
                 <div class="@StateClass(node)">
                     @node.State
@@ -175,5 +194,15 @@
         TimeSpan timePassed = DateTime.Now - node.StartTime;
         node.ElapsedTime = timePassed.TotalSeconds * 100;
         return node.ElapsedTime;
+    }
+
+    public async Task TogglePause(string url, bool result)
+    {
+        Console.WriteLine($"Url:{url} Result:{result}");
+        var toggleData = new DTOs.TogglePauseData
+            {
+                toggle = result
+            };
+        var response = await Client.PostAsJsonAsync($"{url}/receive/togglePause", toggleData);
     }
 }
