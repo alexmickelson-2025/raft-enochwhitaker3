@@ -7,7 +7,6 @@ services:
       - NODE_ID=1
       - OTHER_NODES=2,http://node2:8080;3,http://node3:8080
       - NODE_INTERVAL_SCALAR=50
-    command: dotnet run --project /app/RaftApi
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -22,7 +21,6 @@ services:
       - NODE_ID=2
       - OTHER_NODES=1,http://node1:8080;3,http://node3:8080
       - NODE_INTERVAL_SCALAR=50
-    command: dotnet run --project /app/RaftApi
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -37,7 +35,6 @@ services:
       - NODE_ID=3
       - OTHER_NODES=1,http://node1:8080;2,http://node2:8080
       - NODE_INTERVAL_SCALAR=50
-    command: dotnet run --project /app/RaftApi
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -47,8 +44,7 @@ services:
   client:
     build:
       context: .
-      dockerfile: dev.Dockerfile
-    command: dotnet run --project /app/RaftDockerClient
+      dockerfile: client.Dockerfile
     ports:
       - 1101:8080
     environment:
